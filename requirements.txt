@@ -1,0 +1,44 @@
+# BreastAI Production System v3.2.0
+# Requirements pour système de classification médicale
+
+# PyTorch et Vision
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Traitement d'images
+Pillow>=9.5.0
+opencv-python>=4.7.0
+
+# Calcul scientifique
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+
+# Visualisation
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilitaires
+tqdm>=4.65.0
+psutil>=5.9.0
+
+# Communication réseau
+websockets>=11.0
+asyncio>=3.4.3
+
+# Export et optimisation
+onnx>=1.14.0
+onnxruntime>=1.15.0
+
+# Optionnel - Logging avancé
+colorama>=0.4.6
+
+# Optionnel - Interface alternative
+# gradio>=3.35.0
+# streamlit>=1.24.0
+
+# Optionnel - Tracking expériences
+# tensorboard>=2.13.0
+# wandb>=0.15.0

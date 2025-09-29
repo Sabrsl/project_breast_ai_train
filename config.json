@@ -1,0 +1,436 @@
+{
+  "project_info": {
+    "name": "BreastAI",
+    "version": "3.1.0",
+    "description": "Système de classification médicale pour la détection du cancer du sein",
+    "author": "BreastAI Team",
+    "created": "2024-09-29",
+    "license": "MIT"
+  },
+  
+  "paths": {
+    "data_dir": "./data",
+    "save_dir": "./experiments",
+    "checkpoint_dir": "./checkpoints", 
+    "export_dir": "./exports",
+    "logs_dir": "./logs",
+    "cache_dir": "./cache",
+    "temp_dir": "./temp",
+    "onnx_dir": "./exports/onnx",
+    "backup_dir": "./backups"
+  },
+
+  "data": {
+    "train_dir": "./data/train",
+    "val_dir": "./data/val", 
+    "test_dir": "./data/test",
+    "image_size": 512,
+    "batch_size": 4,
+    "num_workers": 4,
+    "pin_memory": false,
+    "val_split": 0.2,
+    "test_split": 0.1,
+    "class_names": ["benign", "malignant", "normal"],
+    "data_augmentation": {
+      "use_augmentation": true,
+      "horizontal_flip": 0.5,
+      "vertical_flip": 0.3,
+      "rotation": 15,
+      "brightness": 0.2,
+      "contrast": 0.2,
+      "saturation": 0.1,
+      "hue": 0.05,
+      "random_crop": true,
+      "random_resize_crop": {
+        "scale": [0.85, 1.0],
+        "ratio": [0.9, 1.1]
+      },
+      "color_jitter": true,
+      "random_erasing": {
+        "probability": 0.25,
+        "scale": [0.02, 0.2],
+        "ratio": [0.3, 3.3]
+      },
+      "gaussian_noise": {
+        "enabled": false,
+        "std": 0.01
+      }
+    },
+    "preprocessing": {
+      "use_clahe": true,
+      "clahe_clip_limit": 2.0,
+      "clahe_grid_size": [16, 16],
+      "normalization": {
+        "mean": [0.485, 0.456, 0.406],
+        "std": [0.229, 0.224, 0.225]
+      },
+      "resize_mode": "bilinear",
+      "center_crop": false
+    }
+  },
+  
+  "model": {
+    "architecture": "efficientnetv2_s",
+    "pretrained": true,
+    "num_classes": 3,
+    "dropout_rate": 0.4,
+    "use_cbam": true,
+    "cbam_reduction": 16,
+    "cbam_kernel_size": 7,
+    "freeze_backbone": false,
+    "gradient_checkpointing": false,
+    "available_models": {
+      "efficientnetv2": [
+        "efficientnetv2_s",
+        "efficientnetv2_m", 
+        "efficientnetv2_l"
+      ],
+      "efficientnet": [
+        "efficientnet_b0",
+        "efficientnet_b1",
+        "efficientnet_b2", 
+        "efficientnet_b3",
+        "efficientnet_b4",
+        "efficientnet_b5",
+        "efficientnet_b6",
+        "efficientnet_b7"
+      ],
+      "resnet": [
+        "resnet18",
+        "resnet34",
+        "resnet50",
+        "resnet101",
+        "resnet152"
+      ],
+      "densenet": [
+        "densenet121",
+        "densenet169",
+        "densenet201",
+        "densenet161"
+      ]
+    }
+  },
+  
+  "training": {
+    "epochs": 50,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.001,
+    "optimizer": "adamw",
+    "optimizer_params": {
+      "adamw": {
+        "betas": [0.9, 0.999],
+        "eps": 1e-8,
+        "amsgrad": false
+      },
+      "adam": {
+        "betas": [0.9, 0.999],
+        "eps": 1e-8,
+        "amsgrad": false
+      },
+      "sgd": {
+        "momentum": 0.9,
+        "nesterov": true
+      }
+    },
+    "scheduler": "cosine",
+    "t_0": 10,
+    "t_mult": 2,
+    "min_learning_rate": 1e-6,
+    "scheduler_params": {
+      "cosine_warm_restarts": {
+        "t_0": 10,
+        "t_mult": 2,
+        "eta_min_ratio": 0.01
+      },
+      "cosine": {
+        "eta_min_ratio": 0.01
+      },
+      "onecycle": {
+        "max_lr_ratio": 10,
+        "pct_start": 0.1,
+        "div_factor": 10.0,
+        "final_div_factor": 100.0
+      },
+      "plateau": {
+        "mode": "min",
+        "patience": 5,
+        "factor": 0.5,
+        "min_lr_ratio": 0.001
+      }
+    },
+    "warmup_epochs": 5,
+    "gradient_clip": 1.0,
+    "label_smoothing": 0.1,
+    "use_amp": false,
+    "compile_model": false
+  },
+  
+  "regularization": {
+    "use_class_weights": true,
+    "mixup": {
+      "enabled": false,
+      "alpha": 0.2,
+      "probability": 0.5
+    },
+    "cutmix": {
+      "enabled": false,
+      "alpha": 1.0,
+      "probability": 0.5
+    },
+    "progressive_unfreezing": {
+      "enabled": true,
+      "schedule": {
+        "0": "classifier_only",
+        "20": "partial_backbone",
+        "40": "full_model"
+      }
+    },
+    "stochastic_weight_averaging": {
+      "enabled": true,
+      "start_epoch_ratio": 0.5,
+      "lr_ratio": 0.1
+    }
+  },
+  
+  "training": {
+    "early_stopping": {
+      "patience": 10,
+      "min_delta": 0.001,
+      "monitor": "val_f1_weighted",
+      "mode": "max",
+      "restore_best_weights": true
+    }
+  },
+  
+  "system": {
+    "device": "cpu",
+    "multi_gpu": false,
+    "distributed": false,
+    "seed": 42,
+    "deterministic": true,
+    "benchmark": false,
+    "num_threads": 8,
+    "auto_batch_size": false,
+    "memory_efficient": true
+  },
+
+  "websocket": {
+    "host": "localhost",
+    "port": 8765,
+    "max_connections": 10,
+    "heartbeat_interval": 30,
+    "max_message_size": 104857600,
+    "enable_compression": true
+  },
+  
+  "logging": {
+    "log_level": "INFO",
+    "log_to_file": true,
+    "log_file": "breastai.log",
+    "log_every_n_steps": 50,
+    "save_every_n_epochs": 10,
+    "tensorboard": {
+      "enabled": false,
+      "log_dir": "./logs/tensorboard"
+    },
+    "wandb": {
+      "enabled": false,
+      "project": "breastai",
+      "entity": null,
+      "tags": ["medical", "classification", "efficientnet"]
+    }
+  },
+  
+  "checkpoints": {
+    "save_best": true,
+    "save_last": true,
+    "save_every_n_epochs": 10,
+    "max_checkpoints": 5,
+    "save_optimizer": true,
+    "save_scheduler": true,
+    "compression": true
+  },
+  
+  "export": {
+    "formats": ["pytorch", "onnx", "torchscript"],
+    "onnx": {
+      "opset_version": 11,
+      "dynamic_axes": {
+        "input": {"0": "batch_size"},
+        "output": {"0": "batch_size"}
+      },
+      "optimize": true,
+      "simplify": true
+    },
+    "torchscript": {
+      "method": "trace",
+      "optimize": true
+    },
+    "quantization": {
+      "enabled": false,
+      "mode": "dynamic",
+      "backend": "fbgemm"
+    }
+  },
+  
+  "inference": {
+    "confidence_threshold": 0.8,
+    "top_k": 3,
+    "batch_size": 32,
+    "preprocessing": {
+      "resize_method": "bilinear",
+      "maintain_aspect_ratio": true,
+      "center_crop": true
+    },
+    "postprocessing": {
+      "temperature_scaling": false,
+      "temperature": 1.0,
+      "label_smoothing_inference": false
+    },
+    "tta": {
+      "enabled": false,
+      "num_augmentations": 5,
+      "flip_horizontal": true,
+      "flip_vertical": false,
+      "rotate": [0, 90, 180, 270]
+    }
+  },
+  
+  "metrics": {
+    "primary_metric": "f1_weighted",
+    "track_metrics": [
+      "accuracy",
+      "precision_macro",
+      "precision_weighted", 
+      "recall_macro",
+      "recall_weighted",
+      "f1_macro",
+      "f1_weighted",
+      "auc_roc",
+      "confusion_matrix"
+    ],
+    "per_class_metrics": true,
+    "confidence_metrics": true
+  },
+  
+  "visualization": {
+    "generate_plots": true,
+    "plot_training_curves": true,
+    "plot_confusion_matrix": true,
+    "plot_class_distribution": true,
+    "plot_attention_maps": true,
+    "save_format": "png",
+    "dpi": 300,
+    "style": "seaborn-v0_8",
+    "figsize": [12, 8]
+  },
+  
+  "medical_specific": {
+    "class_mapping": {
+      "0": "benign",
+      "1": "malignant", 
+      "2": "normal"
+    },
+    "risk_stratification": {
+      "low_risk": "benign",
+      "high_risk": "malignant",
+      "normal": "normal"
+    },
+    "clinical_thresholds": {
+      "high_confidence": 0.9,
+      "medium_confidence": 0.7,
+      "low_confidence": 0.5
+    },
+    "reporting": {
+      "generate_clinical_report": true,
+      "include_uncertainty": true,
+      "include_gradcam": false,
+      "anonymize_results": true
+    }
+  },
+  
+  "validation": {
+    "cross_validation": {
+      "enabled": false,
+      "n_folds": 5,
+      "stratified": true,
+      "shuffle": true
+    },
+    "hold_out_test": {
+      "enabled": true,
+      "test_size": 0.15,
+      "stratify": true
+    },
+    "validation_frequency": 1,
+    "compute_val_loss": true
+  },
+  
+  "debug": {
+    "debug_mode": false,
+    "profile_training": false,
+    "check_gradient_flow": false,
+    "visualize_batch": false,
+    "save_intermediate_outputs": false,
+    "memory_profiling": false
+  },
+  
+  "production": {
+    "deployment_ready": false,
+    "model_versioning": true,
+    "a_b_testing": false,
+    "monitoring": {
+      "drift_detection": false,
+      "performance_tracking": true,
+      "alert_thresholds": {
+        "accuracy_drop": 0.05,
+        "confidence_drop": 0.1
+      }
+    },
+    "backup": {
+      "auto_backup": true,
+      "backup_frequency": "daily",
+      "retention_days": 30
+    }
+  },
+  
+  "environment": {
+    "conda_env": "breastai",
+    "python_version": "3.9+",
+    "pytorch_version": "2.0+",
+    "cuda_version": "11.8+",
+    "required_packages": [
+      "torch>=2.0.0",
+      "torchvision>=0.15.0",
+      "timm>=0.9.0",
+      "sklearn>=1.3.0",
+      "numpy>=1.24.0",
+      "pandas>=2.0.0",
+      "matplotlib>=3.7.0",
+      "seaborn>=0.12.0",
+      "tqdm>=4.65.0",
+      "pillow>=9.5.0",
+      "opencv-python>=4.7.0"
+    ],
+    "optional_packages": [
+      "onnx>=1.14.0",
+      "onnxruntime>=1.15.0", 
+      "tensorboard>=2.13.0",
+      "wandb>=0.15.0",
+      "gradio>=3.35.0",
+      "streamlit>=1.24.0"
+    ]
+  },
+  
+  "experiments": {
+    "experiment_tracking": true,
+    "auto_naming": true,
+    "naming_pattern": "breastai_{timestamp}_{model}_{dataset}",
+    "tags": ["medical", "breast-cancer", "classification"],
+    "notes": "Production training configuration for BreastAI medical classification system",
+    "reproducibility": {
+      "save_code_snapshot": true,
+      "save_environment": true,
+      "save_git_hash": true
+    }
+  }
+}
