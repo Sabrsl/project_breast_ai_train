@@ -314,8 +314,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 ## 📧 Contact & Support
 
 Pour toute question ou support :
-- 🐛 **Issues** : [GitHub Issues](https://github.com/votre-username/project_breast_ai/issues)
-- 📧 **Email** : votre-email@example.com
+- 🐛 **Issues** : [Sabrsl](https://github.com/votre-username/project_breast_ai/issues)
 
 ---
 
