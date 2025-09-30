@@ -41,6 +41,67 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================================================================================
+# EARLY STOPPING
+# ==================================================================================
+
+class EarlyStopping:
+    """
+    Early Stopping pour arrêter l'entraînement si pas d'amélioration
+    
+    Args:
+        patience (int): Nombre d'epochs sans amélioration avant d'arrêter
+        min_delta (float): Amélioration minimale pour considérer un progrès
+        mode (str): 'min' pour loss, 'max' pour accuracy/f1
+    """
+    def __init__(self, patience: int = 10, min_delta: float = 0.001, mode: str = 'max'):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.mode = mode
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        
+    def __call__(self, score: float) -> bool:
+        """
+        Vérifie si l'entraînement doit s'arrêter
+        
+        Args:
+            score: Métrique à surveiller (accuracy, f1, loss, etc.)
+            
+        Returns:
+            True si l'entraînement doit s'arrêter
+        """
+        if self.best_score is None:
+            self.best_score = score
+            return False
+        
+        # Calculer si amélioration
+        if self.mode == 'max':
+            improved = score > self.best_score + self.min_delta
+        else:  # mode == 'min'
+            improved = score < self.best_score - self.min_delta
+        
+        if improved:
+            self.best_score = score
+            self.counter = 0
+            return False
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+                logger.info(f"⏹️ EARLY STOPPING : pas d'amélioration depuis {self.patience} epochs")
+                return True
+            else:
+                logger.info(f"⏳ Early stopping counter: {self.counter}/{self.patience}")
+                return False
+    
+    def reset(self):
+        """Réinitialise le compteur"""
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+
+# ==================================================================================
 # CONFIGURATION
 # ==================================================================================
 
@@ -276,8 +337,19 @@ class MedicalDataset(Dataset):
         try:
             # Charger l'image
             image = cv2.imread(img_path)
+            
+            # 🛡️ Validation : image corrompue
             if image is None:
-                raise ValueError(f"Impossible de charger {img_path}")
+                raise IOError(f"Image corrompue ou inaccessible: {img_path}")
+            
+            # 🛡️ Validation : dimensions minimales
+            if image.shape[0] < 50 or image.shape[1] < 50:
+                raise ValueError(f"Image trop petite ({image.shape[0]}x{image.shape[1]}): {img_path}")
+            
+            # 🛡️ Validation : image entièrement noire (possiblement corrompue)
+            if np.all(image == 0):
+                raise ValueError(f"Image entièrement noire: {img_path}")
+            
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
             # CLAHE
@@ -291,12 +363,26 @@ class MedicalDataset(Dataset):
             if self.transform:
                 image = self.transform(image)
             
+            # 🛡️ Validation finale : vérifier qu'il n'y a pas de NaN après transformations
+            if torch.isnan(image).any():
+                raise ValueError(f"NaN détecté après transformations: {img_path}")
+            
             return image, label
             
+        except (IOError, OSError) as e:
+            # Erreur d'accès fichier - propager l'exception
+            logger.error(f"❌ Erreur I/O: {img_path} - {e}")
+            raise
+        
+        except ValueError as e:
+            # Erreur de validation - propager l'exception
+            logger.error(f"❌ Validation échouée: {img_path} - {e}")
+            raise
+        
         except Exception as e:
-            logger.warning(f"Erreur chargement {img_path}: {e}")
-            # Retourner une image noire en cas d'erreur
-            return torch.zeros(3, 512, 512), label
+            # Erreur inattendue - propager avec contexte
+            logger.error(f"❌ Erreur inattendue: {img_path} - {type(e).__name__}: {e}")
+            raise RuntimeError(f"Erreur chargement image: {img_path}") from e
 
 # ==================================================================================
 # SYSTÈME D'ENTRAÎNEMENT
@@ -336,8 +422,30 @@ class TrainingSystem:
         self.ema_decay = 0.9998
         self.model_ema = None
         
+        # 🆕 Early Stopping (classe dédiée)
+        early_stop_config = config.get('training', 'early_stopping', default={})
+        early_stop_patience = early_stop_config.get('patience', 10) if isinstance(early_stop_config, dict) else 10
+        early_stop_min_delta = early_stop_config.get('min_delta', 0.001) if isinstance(early_stop_config, dict) else 0.001
+        
+        self.early_stopping = EarlyStopping(
+            patience=early_stop_patience,
+            min_delta=early_stop_min_delta,
+            mode='max'  # Surveiller F1-macro (maximiser)
+        )
+        self.early_stopping_enabled = early_stop_config.get('enabled', True) if isinstance(early_stop_config, dict) else True
+        
+        # 🆕 AMP (Automatic Mixed Precision)
+        self.use_amp = torch.cuda.is_available()  # Activé seulement si GPU
+        self.scaler = None
+        if self.use_amp:
+            from torch.cuda.amp import GradScaler
+            self.scaler = GradScaler()
+            logger.info("⚡ AMP activé : entraînement 2-3x plus rapide")
+        
         # Métriques
         self.best_val_acc = 0.0
+        self.best_val_f1 = 0.0
+        self.worst_val_acc = 100.0  # Pour analyse
         self.history = defaultdict(list)
         
         logger.info("Système d'entraînement initialisé")
@@ -693,10 +801,31 @@ class TrainingSystem:
                 # Scheduler
                 self.scheduler.step()
                 
-                # Save best
-                if val_metrics['accuracy'] > self.best_val_acc:
-                    self.best_val_acc = val_metrics['accuracy']
+                # 🎯 Sauvegarder best/worst models
+                current_f1 = val_metrics.get('f1_macro', 0)
+                current_acc = val_metrics['accuracy']
+                
+                # Best model (basé sur F1-macro)
+                if current_f1 > self.best_val_f1:
+                    self.best_val_f1 = current_f1
+                    self.best_val_acc = current_acc
                     self._save_checkpoint(epoch, 'best.pth')
+                    logger.info(f"✅ Nouveau meilleur modèle : F1={current_f1:.4f}, Acc={current_acc:.2f}%")
+                
+                # Worst model (pour analyse et comparaison)
+                if current_acc < self.worst_val_acc:
+                    self.worst_val_acc = current_acc
+                    self._save_checkpoint(epoch, 'worst.pth')
+                    logger.info(f"📉 Pire modèle sauvegardé (analyse) : Acc={current_acc:.2f}%")
+                
+                # 🛑 Early Stopping avec classe dédiée
+                if self.early_stopping_enabled and self.early_stopping(current_f1):
+                    await self.send_update({
+                        'type': 'log',
+                        'message': f'⏹️ Early stopping : pas d\'amélioration depuis {self.early_stopping.patience} epochs',
+                        'level': 'warning'
+                    })
+                    break
                 
                 # Save periodic
                 if epoch % 10 == 0:
@@ -733,24 +862,51 @@ class TrainingSystem:
         
         for batch_idx, (images, labels) in enumerate(self.train_loader):
             try:
+                # 🛡️ Vérification batch vide
+                if images.size(0) == 0:
+                    logger.warning(f"Batch {batch_idx} vide - skip")
+                    continue
+                
+                # 🛡️ Vérification NaN
+                if torch.isnan(images).any() or torch.isnan(labels.float()).any():
+                    logger.error(f"Batch {batch_idx} contient NaN - skip")
+                    skipped_batches += 1
+                    continue
+                
                 images, labels = images.to(self.device), labels.to(self.device)
                 
-                # Forward pass
-                outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
-                
-                # 🔄 GRADIENT ACCUMULATION
-                if self.gradient_accumulation_steps > 1:
-                    loss = loss / self.gradient_accumulation_steps
-                
-                loss.backward()
+                # ⚡ MIXED PRECISION (AMP)
+                if self.use_amp:
+                    from torch.cuda.amp import autocast
+                    with autocast():
+                        outputs = self.model(images)
+                        loss = self.criterion(outputs, labels)
+                        
+                        if self.gradient_accumulation_steps > 1:
+                            loss = loss / self.gradient_accumulation_steps
+                    
+                    self.scaler.scale(loss).backward()
+                else:
+                    # Standard FP32
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, labels)
+                    
+                    if self.gradient_accumulation_steps > 1:
+                        loss = loss / self.gradient_accumulation_steps
+                    
+                    loss.backward()
                 
                 # Accumulation counter
                 self.accumulation_counter += 1
                 
                 # Optimizer step seulement tous les N batches
                 if self.accumulation_counter % self.gradient_accumulation_steps == 0:
-                    self.optimizer.step()
+                    if self.use_amp:
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    else:
+                        self.optimizer.step()
+                    
                     self.optimizer.zero_grad()
                     
                     # ✅ EMA UPDATE (après optimizer step)
@@ -767,9 +923,37 @@ class TrainingSystem:
                 total += labels.size(0)
                 correct += predicted.eq(labels).sum().item()
                 
-            except Exception as e:
+            except torch.cuda.OutOfMemoryError as e:
+                logger.critical(f"❌ OUT OF MEMORY à batch {batch_idx}!")
+                logger.critical(f"💡 Solution : Réduire batch_size ou activer gradient_accumulation")
+                await self.send_update({
+                    'type': 'error',
+                    'message': '❌ OUT OF MEMORY - Réduire batch_size'
+                })
+                raise RuntimeError("OOM - Réduire batch_size") from e
+            
+            except (IOError, OSError) as e:
+                logger.error(f"❌ Erreur I/O batch {batch_idx}: {e}")
                 skipped_batches += 1
-                logger.error(f"Erreur batch {batch_idx}: {e}")
+                if skipped_batches > len(self.train_loader) * 0.1:  # >10% erreurs
+                    raise RuntimeError(f"Trop d'erreurs I/O : {skipped_batches} batches") from e
+                await self.send_update({
+                    'type': 'log',
+                    'message': f'⚠️ Erreur I/O batch {batch_idx}, skip',
+                    'level': 'warning'
+                })
+                continue
+            
+            except ValueError as e:
+                logger.warning(f"⚠️ Donnée invalide batch {batch_idx}: {e}")
+                skipped_batches += 1
+                continue
+            
+            except Exception as e:
+                logger.error(f"❌ Erreur inattendue batch {batch_idx}: {type(e).__name__}: {e}")
+                skipped_batches += 1
+                if skipped_batches > len(self.train_loader) * 0.2:  # >20% erreurs
+                    raise RuntimeError(f"Trop d'erreurs : {skipped_batches} batches") from e
                 await self.send_update({
                     'type': 'log',
                     'message': f'⚠ Erreur batch {batch_idx}, skip',
@@ -974,10 +1158,41 @@ class TrainingSystem:
             'recall_weighted': recall_weighted
         }
     
+    def _validate_checkpoint_path(self, path: str) -> Path:
+        """
+        Valide le chemin d'un checkpoint pour éviter les attaques de type path traversal
+        
+        Args:
+            path: Chemin du checkpoint à valider
+            
+        Returns:
+            Path validé et résolu
+            
+        Raises:
+            ValueError: Si le chemin est invalide ou en dehors du dossier checkpoints
+        """
+        checkpoint_dir = Path('checkpoints').resolve()
+        checkpoint_path = (checkpoint_dir / path).resolve()
+        
+        # Vérifier que le chemin est bien dans le dossier checkpoints
+        try:
+            checkpoint_path.relative_to(checkpoint_dir)
+        except ValueError:
+            raise ValueError(f"⚠️ Chemin checkpoint invalide (hors de 'checkpoints/') : {path}")
+        
+        return checkpoint_path
+    
     def _save_checkpoint(self, epoch: int, filename: str):
-        """Sauvegarde un checkpoint avec métadonnées complètes"""
+        """Sauvegarde un checkpoint avec métadonnées complètes et validation du chemin"""
         checkpoint_dir = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints'))
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 🛡️ Validation du chemin (sécurité)
+        try:
+            checkpoint_path = self._validate_checkpoint_path(filename)
+        except ValueError as e:
+            logger.error(f"❌ Erreur validation chemin : {e}")
+            return
         
         checkpoint = {
             'epoch': epoch,
@@ -1080,11 +1295,14 @@ class TrainingSystem:
             return False
     
     def load_checkpoint(self, checkpoint_path: str) -> bool:
-        """Charge un checkpoint pour reprendre l'entraînement"""
+        """Charge un checkpoint pour reprendre l'entraînement avec validation du chemin"""
         try:
-            logger.info(f"Chargement checkpoint: {checkpoint_path}")
+            # 🛡️ Validation du chemin (sécurité)
+            validated_path = self._validate_checkpoint_path(checkpoint_path)
             
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            logger.info(f"Chargement checkpoint: {validated_path}")
+            
+            checkpoint = torch.load(validated_path, map_location=self.device)
             
             # Restaurer l'état
             self.model.load_state_dict(checkpoint['model_state_dict'])

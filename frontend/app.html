@@ -509,9 +509,10 @@
                     <div class="config-group">
                         <label class="config-label">🔥 Présets de Configuration</label>
                         <select class="config-input" id="ultraConfig" onchange="applyUltraConfig()">
-                            <option value="base" selected>📋 Config Base (Recommandée pour débuter)</option>
-                            <option value="ultra_s">⚡ ULTRA-S (30 jours) - Rapide</option>
-                            <option value="ultra_m">🏆 ULTRA-M (50 jours) - Optimal</option>
+                            <option value="quicktest">🚀 Quick Test (2-4h) - Test rapide</option>
+                            <option value="base" selected>📋 Config Base (3j) - Recommandée</option>
+                            <option value="ultra_s">⚡ ULTRA-S (12j) - Production légère</option>
+                            <option value="ultra_m">🏆 ULTRA-M (20j) - Production optimale</option>
                             <option value="custom">⚙️ Configuration personnalisée</option>
                         </select>
                     </div>
@@ -1114,10 +1115,32 @@
         function applyUltraConfig() {
             const config = document.getElementById('ultraConfig').value;
             
-            if (config === 'base') {
-                // 📋 CONFIG DE BASE : Équilibrée, idéale pour débuter (20 jours)
+            if (config === 'quicktest') {
+                // 🚀 QUICK TEST : Validation rapide (2-4h)
                 document.getElementById('modelName').value = 'efficientnetv2_s';
-                document.getElementById('epochs').value = 50;
+                document.getElementById('epochs').value = 5;
+                document.getElementById('batchSize').value = 8;
+                document.getElementById('learningRate').value = 0.001;  // LR plus élevé pour convergence rapide
+                document.getElementById('weightDecay').value = 0.0001;
+                document.getElementById('dropout').value = 0.3;
+                document.getElementById('labelSmoothing').value = 0.05;
+                document.getElementById('optimizer').value = 'adamw';
+                document.getElementById('useCbam').value = 'false';  // Pas de CBAM (plus rapide)
+                
+                // Features désactivées (vitesse max)
+                document.getElementById('useFocalLoss').value = 'false';
+                document.getElementById('useTTA').value = 'false';
+                document.getElementById('useEMA').value = 'false';
+                document.getElementById('gradientAccSteps').value = 1;
+                
+                logConsole('🚀 QUICK TEST chargé : 2-4h, validation architecture/data', 'success');
+                logConsole('   → 5 epochs, batch 8, pas de features avancées', 'info');
+                logConsole('   → Parfait pour itération rapide et debug 💨', 'info');
+                
+            } else if (config === 'base') {
+                // 📋 CONFIG DE BASE : Équilibrée, idéale pour débuter (3 jours avec early stop)
+                document.getElementById('modelName').value = 'efficientnetv2_s';
+                document.getElementById('epochs').value = 15;  // Réduit de 50 → 15 (early stop arrêtera probablement à ~10)
                 document.getElementById('batchSize').value = 4;
                 document.getElementById('learningRate').value = 0.0003;
                 document.getElementById('weightDecay').value = 0.0001;
@@ -1132,13 +1155,13 @@
                 document.getElementById('useEMA').value = 'false';        // Pas d'EMA
                 document.getElementById('gradientAccSteps').value = 1;    // Pas de Grad Acc
                 
-                logConsole('📋 Config BASE chargée : 20 jours, AUC ~0.960-0.965', 'success');
-                logConsole('   → Parfaite pour prototypage et premiers tests 🚀', 'info');
+                logConsole('📋 Config BASE chargée : ~3j (early stop), AUC ~0.960-0.965', 'success');
+                logConsole('   → Parfaite pour prototypage et validation dataset 🚀', 'info');
                 
             } else if (config === 'ultra_s') {
-                // ⚡ ULTRA-S : 30 jours - Rapide
+                // ⚡ ULTRA-S : ~12j (early stop probable à ~20-25 epochs)
                 document.getElementById('modelName').value = 'efficientnetv2_s';
-                document.getElementById('epochs').value = 80;
+                document.getElementById('epochs').value = 30;  // Réduit de 80 → 30
                 document.getElementById('batchSize').value = 4;
                 document.getElementById('learningRate').value = 0.0003;
                 document.getElementById('weightDecay').value = 0.0001;
@@ -1153,13 +1176,13 @@
                 document.getElementById('useEMA').value = 'true';
                 document.getElementById('gradientAccSteps').value = 4;
                 
-                logConsole('⚡ Config ULTRA-S chargée : 30 jours, AUC ~0.970-0.973', 'success');
+                logConsole('⚡ Config ULTRA-S chargée : ~12j (early stop), AUC ~0.970-0.973', 'success');
                 logConsole('   → Focal Loss ✅ | TTA ✅ | EMA ✅ | Grad Acc ×4 ✅', 'info');
                 
             } else if (config === 'ultra_m') {
-                // 🏆 ULTRA-M : 50 jours - Optimal
+                // 🏆 ULTRA-M : ~20j (early stop probable à ~35-40 epochs)
                 document.getElementById('modelName').value = 'efficientnetv2_m';
-                document.getElementById('epochs').value = 80;
+                document.getElementById('epochs').value = 50;  // Réduit de 80 → 50
                 document.getElementById('batchSize').value = 4;
                 document.getElementById('learningRate').value = 0.0003;
                 document.getElementById('weightDecay').value = 0.0001;
@@ -1174,7 +1197,7 @@
                 document.getElementById('useEMA').value = 'true';
                 document.getElementById('gradientAccSteps').value = 4;
                 
-                logConsole('🏆 Config ULTRA-M chargée : 50 jours, AUC ~0.975-0.978', 'success');
+                logConsole('🏆 Config ULTRA-M chargée : ~20j (early stop), AUC ~0.975-0.978', 'success');
                 logConsole('   → Focal Loss ✅ | TTA ✅ | EMA ✅ | Grad Acc ×4 ✅', 'info');
                 
             } else if (config === 'custom') {
