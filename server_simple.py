@@ -50,7 +50,8 @@ class BreastAIServer:
     async def broadcast(self, message: Dict):
         """Envoie un message à tous les clients connectés - VERSION PRODUCTION"""
         if not self.clients:
-            return  # Pas de logs pour éviter spam
+            logger.warning(f"🚨 AUCUN CLIENT CONNECTÉ pour {message['type']}")  # IMPORTANT !
+            return
         
         try:
             message_json = json.dumps(message, ensure_ascii=False)
@@ -66,7 +67,7 @@ class BreastAIServer:
             try:
                 await client.send(message_json)
             except Exception as e:
-                logger.debug(f"Client déconnecté: {e}")
+                logger.warning(f"🚨 CLIENT DÉCONNECTÉ: {e}")  # VISIBLE !
                 disconnected.add(client)
         
         # Nettoyage silencieux
