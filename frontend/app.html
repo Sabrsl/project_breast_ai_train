@@ -778,7 +778,18 @@
         // ==================================================================================
         function handleServerMessage(data) {
             const type = data.type;
-            console.log('Message reçu:', type, data); // DEBUG: voir tous les messages
+            console.log('🔥 MESSAGE REÇU:', type, data); // DEBUG VISIBLE
+            
+            // FORCER L'AFFICHAGE IMMÉDIAT
+            if (type === 'log') {
+                logConsole(data.message, data.level || 'info');
+                console.log('✅ LOG AFFICHÉ:', data.message);
+            }
+            
+            if (type === 'batch_progress') {
+                updateBatchProgress(data);
+                console.log('✅ DASHBOARD MIS À JOUR:', data.batch);
+            }
 
             switch(type) {
                 case 'connection_established':
