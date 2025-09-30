@@ -49,9 +49,9 @@ class BreastAIServer:
     
     async def broadcast(self, message: Dict):
         """Envoie un message à tous les clients connectés - VERSION PRODUCTION"""
-        logger.info(f"📡 BROADCAST APPELÉ: {message['type']}")  # VOIR SI APPELÉ !
+        logger.info(f"BROADCAST APPELE: {message['type']}")  # VOIR SI APPELÉ !
         if not self.clients:
-            logger.warning(f"🚨 AUCUN CLIENT CONNECTÉ pour {message['type']}")  # IMPORTANT !
+            logger.warning(f"AUCUN CLIENT CONNECTE pour {message['type']}")  # IMPORTANT !
             return
         
         try:
@@ -70,12 +70,12 @@ class BreastAIServer:
                 await client.send(message_json)
                 sent_count += 1
             except Exception as e:
-                logger.warning(f"🚨 CLIENT DÉCONNECTÉ: {e}")  # VISIBLE !
+                logger.warning(f"CLIENT DECONNECTE: {e}")  # VISIBLE !
                 disconnected.add(client)
         
         # Nettoyage et confirmation
         self.clients -= disconnected
-        logger.info(f"✅ MESSAGE ENVOYÉ à {sent_count} clients ({message['type']})")  # CONFIRMATION !
+        logger.info(f"MESSAGE ENVOYE a {sent_count} clients ({message['type']})")  # CONFIRMATION !
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""
