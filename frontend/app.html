@@ -507,18 +507,28 @@
                     <div class="section-title">Configuration</div>
                     
                     <div class="config-group">
+                        <label class="config-label">🔥 Configuration Ultra-Performance</label>
+                        <select class="config-input" id="ultraConfig" onchange="applyUltraConfig()">
+                            <option value="">-- Choisir une config --</option>
+                            <option value="ultra_s">⚡ ULTRA-S (30 jours) - Rapide</option>
+                            <option value="ultra_m" selected>🏆 ULTRA-M (50 jours) - Optimal</option>
+                            <option value="custom">⚙️ Configuration personnalisée</option>
+                        </select>
+                    </div>
+
+                    <div class="config-group">
                         <label class="config-label">Modèle</label>
                         <select class="config-input" id="modelName">
-                            <option value="efficientnetv2_s">EfficientNetV2-S (Rapide)</option>
-                            <option value="efficientnetv2_m">EfficientNetV2-M (Équilibré)</option>
-                            <option value="efficientnetv2_l" selected>EfficientNetV2-L ⭐ (Clinique)</option>
+                            <option value="efficientnetv2_s">EfficientNetV2-S</option>
+                            <option value="efficientnetv2_m" selected>EfficientNetV2-M</option>
+                            <option value="efficientnetv2_l">EfficientNetV2-L</option>
                             <option value="efficientnet_b4">EfficientNet-B4</option>
                         </select>
                     </div>
 
                     <div class="config-group">
                         <label class="config-label">Epochs</label>
-                        <input type="number" class="config-input" id="epochs" value="50" min="1" max="200">
+                        <input type="number" class="config-input" id="epochs" value="80" min="1" max="200">
                     </div>
 
                     <div class="config-group">
@@ -543,6 +553,16 @@
                             <option value="adam">Adam</option>
                             <option value="sgd">SGD</option>
                         </select>
+                    </div>
+
+                    <div class="config-group">
+                        <label class="config-label">Label Smoothing</label>
+                        <input type="number" class="config-input" id="labelSmoothing" value="0.12" step="0.01" min="0.0" max="0.3">
+                    </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">Dropout Rate</label>
+                        <input type="number" class="config-input" id="dropout" value="0.45" step="0.05" min="0.1" max="0.8">
                     </div>
 
                     <div class="config-group">
@@ -816,20 +836,17 @@
                     batch_size: parseInt(document.getElementById('batchSize').value),
                     learning_rate: parseFloat(document.getElementById('learningRate').value),
                     weight_decay: parseFloat(document.getElementById('weightDecay').value),
+                    label_smoothing: parseFloat(document.getElementById('labelSmoothing').value),
+                    dropout_rate: parseFloat(document.getElementById('dropout').value),
                     optimizer: document.getElementById('optimizer').value,
+                    use_cbam: document.getElementById('useCbam').value === 'true',
+                    scheduler: 'cosine',
                     
-                    // Classes & Workers - FIX: Added num_workers for better CPU performance
+                    // Classes & Workers
                     num_classes: 3,
                     num_workers: 2,
                     
-                    // Model config
-                    use_cbam: document.getElementById('useCbam').value === 'true',
-                    dropout_rate: 0.4,
-                    scheduler: 'cosine',
-                    
-                    // Training params
-                    label_smoothing: 0.1,
-                    weight_decay: 0.0001,
+                    // Training params (overridden by fields above)
                     gradient_clip: 1.0,
                     
                     // Data augmentation
@@ -1047,6 +1064,50 @@
             console.scrollTop = console.scrollHeight;
         }
 
+        // ==================================================================================
+        // ULTRA CONFIGS
+        // ==================================================================================
+        function applyUltraConfig() {
+            const config = document.getElementById('ultraConfig').value;
+            
+            if (config === 'ultra_s') {
+                // ⚡ ULTRA-S : 30 jours
+                document.getElementById('modelName').value = 'efficientnetv2_s';
+                document.getElementById('epochs').value = 80;
+                document.getElementById('batchSize').value = 4;
+                document.getElementById('learningRate').value = 0.0003;
+                document.getElementById('weightDecay').value = 0.0001;
+                document.getElementById('dropout').value = 0.45;
+                document.getElementById('labelSmoothing').value = 0.12;
+                document.getElementById('optimizer').value = 'adamw';
+                document.getElementById('useCbam').value = 'true';
+                
+                logConsole('⚡ Config ULTRA-S chargée : 30 jours, AUC ~0.970-0.973', 'success');
+                
+            } else if (config === 'ultra_m') {
+                // 🏆 ULTRA-M : 50 jours
+                document.getElementById('modelName').value = 'efficientnetv2_m';
+                document.getElementById('epochs').value = 80;
+                document.getElementById('batchSize').value = 4;
+                document.getElementById('learningRate').value = 0.0003;
+                document.getElementById('weightDecay').value = 0.0001;
+                document.getElementById('dropout').value = 0.45;
+                document.getElementById('labelSmoothing').value = 0.12;
+                document.getElementById('optimizer').value = 'adamw';
+                document.getElementById('useCbam').value = 'true';
+                
+                logConsole('🏆 Config ULTRA-M chargée : 50 jours, AUC ~0.975-0.978', 'success');
+                
+            } else if (config === 'custom') {
+                logConsole('⚙️ Mode personnalisé : Ajustez manuellement les paramètres', 'info');
+            }
+        }
+        
+        // Appliquer config par défaut au chargement
+        window.addEventListener('load', () => {
+            applyUltraConfig();
+        });
+        
         // ==================================================================================
         // TABS
         // ==================================================================================

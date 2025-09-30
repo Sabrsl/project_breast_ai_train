@@ -346,7 +346,11 @@ class TrainingSystem:
             weight_decay = self.config.get('training', 'weight_decay', default=0.0001)
             
             self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
-            self.criterion = nn.CrossEntropyLoss()
+            
+            # Loss function avec label smoothing depuis config
+            label_smoothing = self.config.get('training', 'label_smoothing', default=0.1)
+            self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+            logger.info(f"Loss: CrossEntropyLoss avec label_smoothing={label_smoothing}")
             
             # 4. Scheduler
             epochs = self.config.get('training', 'epochs', default=50)
