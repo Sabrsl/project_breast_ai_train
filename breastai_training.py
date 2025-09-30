@@ -987,17 +987,18 @@ class TrainingSystem:
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
                 logger.info(log_msg)
             
-            # Interface web EN TEMPS REEL (chaque batch)
-            log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
-            await self.send_update({
-                'type': 'log',
-                'message': log_msg,
-                'level': 'info',
-                'timestamp': datetime.now().isoformat()
-            })
+            # Interface web RÉDUIT (tous les 10 batches pour éviter buffering)
+            if batch_idx % 10 == 0:
+                log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
+                await self.send_update({
+                    'type': 'log',
+                    'message': log_msg,
+                    'level': 'info',
+                    'timestamp': datetime.now().isoformat()
+                })
             
-            # TEST : Message batch_progress ULTRA-SIMPLIFIÉ
-            if batch_idx % 5 == 0:  # Seulement tous les 5 batches pour éviter saturation
+            # TEST : Message batch_progress ULTRA-RÉDUIT
+            if batch_idx % 20 == 0:  # Seulement tous les 20 batches pour éviter buffering
                 try:
                     batch_msg = {
                         'type': 'batch_progress',

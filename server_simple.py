@@ -67,7 +67,8 @@ class BreastAIServer:
         for client in self.clients:
             try:
                 await client.send(message_json)
-                logger.debug(f"DEBUG: Message envoyé à client {client.remote_address}")  # DEBUG
+                await asyncio.sleep(0.001)  # MICRO-PAUSE pour forcer le flush
+                logger.debug(f"DEBUG: Message envoyé et flushé à client {client.remote_address}")  # DEBUG
             except Exception as e:
                 logger.warning(f"Erreur envoi client: {e}")
                 disconnected.add(client)
