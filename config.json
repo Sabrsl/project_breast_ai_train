@@ -70,7 +70,7 @@
   },
   
   "model": {
-    "architecture": "efficientnetv2_s",
+    "architecture": "efficientnetv2_l",
     "pretrained": true,
     "num_classes": 3,
     "dropout_rate": 0.4,
@@ -79,6 +79,13 @@
     "cbam_kernel_size": 7,
     "freeze_backbone": false,
     "gradient_checkpointing": false,
+    "progressive_unfreezing": {
+      "enabled": true,
+      "phase1_epochs": 5,
+      "phase2_epochs": 15,
+      "phase2_blocks_to_unfreeze": 3,
+      "lr_reduction_phase3": 0.1
+    },
     "available_models": {
       "efficientnetv2": [
         "efficientnetv2_s",
@@ -114,7 +121,7 @@
   "training": {
     "epochs": 50,
     "learning_rate": 0.0003,
-    "weight_decay": 0.001,
+    "weight_decay": 0.0001,
     "optimizer": "adamw",
     "optimizer_params": {
       "adamw": {
@@ -307,10 +314,24 @@
       "f1_macro",
       "f1_weighted",
       "auc_roc",
-      "confusion_matrix"
+      "auc_pr",
+      "confusion_matrix",
+      "sensitivity",
+      "specificity",
+      "ppv",
+      "npv"
     ],
     "per_class_metrics": true,
-    "confidence_metrics": true
+    "confidence_metrics": true,
+    "clinical_metrics": {
+      "enabled": true,
+      "malignant_class_idx": 1,
+      "compute_sensitivity": true,
+      "compute_specificity": true,
+      "compute_ppv": true,
+      "compute_npv": true,
+      "confidence_thresholds": [0.5, 0.7, 0.8, 0.9, 0.95]
+    }
   },
   
   "visualization": {

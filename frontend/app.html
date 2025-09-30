@@ -509,9 +509,9 @@
                     <div class="config-group">
                         <label class="config-label">Modèle</label>
                         <select class="config-input" id="modelName">
-                            <option value="efficientnetv2_s">EfficientNetV2-S ⭐</option>
-                            <option value="efficientnetv2_m">EfficientNetV2-M</option>
-                            <option value="efficientnetv2_l">EfficientNetV2-L</option>
+                            <option value="efficientnetv2_s">EfficientNetV2-S (Rapide)</option>
+                            <option value="efficientnetv2_m">EfficientNetV2-M (Équilibré)</option>
+                            <option value="efficientnetv2_l" selected>EfficientNetV2-L ⭐ (Clinique)</option>
                             <option value="efficientnet_b4">EfficientNet-B4</option>
                         </select>
                     </div>
@@ -528,7 +528,12 @@
 
                     <div class="config-group">
                         <label class="config-label">Learning Rate</label>
-                        <input type="number" class="config-input" id="learningRate" value="0.0003" step="0.0001" min="0.00001" max="0.01">
+                        <input type="number" class="config-input" id="learningRate" value="0.0003" step="0.00001" min="0.00001" max="0.01">
+                    </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">Weight Decay</label>
+                        <input type="number" class="config-input" id="weightDecay" value="0.0001" step="0.00001" min="0.00001" max="0.01">
                     </div>
 
                     <div class="config-group">
@@ -810,6 +815,7 @@
                     epochs: parseInt(document.getElementById('epochs').value),
                     batch_size: parseInt(document.getElementById('batchSize').value),
                     learning_rate: parseFloat(document.getElementById('learningRate').value),
+                    weight_decay: parseFloat(document.getElementById('weightDecay').value),
                     optimizer: document.getElementById('optimizer').value,
                     
                     // Classes & Workers - FIX: Added num_workers for better CPU performance
