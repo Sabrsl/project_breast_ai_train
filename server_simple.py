@@ -55,7 +55,15 @@ class BreastAIServer:
             return
         
         try:
-            message_json = json.dumps(message, ensure_ascii=False)
+            # FORMAT MINIMAL pour éviter buffering navigateur
+            if message['type'] == 'log':
+                message_simple = {'type': 'log', 'message': message['message'], 'level': message.get('level', 'info')}
+            elif message['type'] == 'batch_progress':
+                message_simple = {'type': 'batch_progress', 'batch': message['batch'], 'total': message['total_batches'], 'loss': message['current_loss'], 'acc': message['current_accuracy']}
+            else:
+                message_simple = message
+            
+            message_json = json.dumps(message_simple, ensure_ascii=True, separators=(',', ':'))  # COMPACT + ASCII
         except Exception as e:
             logger.error(f"Erreur sérialisation JSON: {e}")
             return
