@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-BreastAI WebSocket Server v3.3.0 - SIMPLE ET DIRECT
-Serveur WebSocket minimaliste pour contrôler l'entraînement depuis l'interface web
+BreastAI WebSocket Server v3.3.1 - PRODUCTION READY
+Serveur WebSocket pour controle de l'entrainement depuis l'interface web
+Corrections: chemins checkpoints, gestion erreurs, code production
 """
 
 import os
@@ -9,8 +10,6 @@ import sys
 import json
 import asyncio
 import logging
-import queue
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -18,13 +17,13 @@ from typing import Dict, Optional, Set
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-# Importer notre système d'entraînement
+# Importer le systeme d'entrainement
 from breastai_training import TrainingSystem, Config
 
 # Configuration logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler('logs/server.log')
@@ -37,7 +36,7 @@ logger = logging.getLogger(__name__)
 # ==================================================================================
 
 class BreastAIServer:
-    """Serveur WebSocket simple pour BreastAI"""
+    """Serveur WebSocket pour BreastAI"""
     
     def __init__(self, host: str = 'localhost', port: int = 8765):
         self.host = host
@@ -47,91 +46,84 @@ class BreastAIServer:
         self.training_task: Optional[asyncio.Task] = None
         self.is_training = False
         
-        # SYSTÈME SIMPLE - PAS DE QUEUE THREAD
-        
-        logger.info(f"Serveur initialisé sur {host}:{port} - SYSTÈME SIMPLE")
+        logger.info(f"Serveur initialise sur {host}:{port}")
     
     async def broadcast(self, message: Dict):
-        """BROADCAST SIMPLE ET DIRECT - SANS COROUTINE"""
+        """Broadcast un message a tous les clients connectes"""
         if not self.clients:
             return
         
         try:
-            # FORMAT ULTRA-COMPACT
-            if message['type'] == 'log':
-                msg = {'t': 'l', 'm': message['message'], 'l': message.get('level', 'info')[0]}
-            elif message['type'] == 'batch_progress':
-                msg = {'t': 'bp', 'b': message['batch'], 'T': message['total_batches'], 'L': message['current_loss'], 'a': message['current_accuracy']}
-            else:
-                msg = message
-            
-            message_json = json.dumps(msg, ensure_ascii=True, separators=(',', ':'))
-            
-            # ENVOI DIRECT - SIMPLE
+            message_json = json.dumps(message)
             clients_copy = self.clients.copy()
             disconnected = set()
             
             for client in clients_copy:
                 try:
                     await client.send(message_json)
-                except:
+                except websockets.exceptions.ConnectionClosed:
+                    logger.info(f"Client deconnecte pendant broadcast: {client.remote_address}")
+                    disconnected.add(client)
+                except Exception as e:
+                    logger.warning(f"Erreur envoi a client {client.remote_address}: {e}")
                     disconnected.add(client)
             
-            # Nettoyage
-            self.clients -= disconnected
-            
+            if disconnected:
+                self.clients -= disconnected
+                logger.info(f"Clients deconnectes: {len(disconnected)} (Restants: {len(self.clients)})")
+                
         except Exception as e:
             logger.error(f"Erreur broadcast: {e}")
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
-        """Gère une connexion client"""
+        """Gere une connexion client"""
         self.clients.add(websocket)
         client_addr = websocket.remote_address
-        logger.info(f"Client connecté: {client_addr}")
+        logger.info(f"Client connecte: {client_addr}")
         
         try:
             # Message de bienvenue
             await websocket.send(json.dumps({
                 'type': 'connection_established',
-                'message': 'Connecté au serveur BreastAI',
+                'message': 'Connecte au serveur BreastAI',
                 'timestamp': datetime.now().isoformat()
             }))
             
-            # KEEP-ALIVE PRODUCTION - Simple et efficace
+            # Keep-alive
             async def keep_alive():
                 try:
                     while websocket in self.clients:
-                        await asyncio.sleep(2)  # PING ULTRA-FRÉQUENT - 2 SECONDES !
+                        await asyncio.sleep(30)
                         if websocket in self.clients:
                             await websocket.ping()
-                            logger.debug("FORCE-FLUSH ping envoye")
                 except:
-                    pass  # Fin silencieuse
+                    pass
             
             asyncio.create_task(keep_alive())
             
-            # Boucle de réception
+            # Boucle de reception
             async for message in websocket:
                 await self.handle_message(websocket, message)
         
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"Client déconnecté: {client_addr}")
+            logger.info(f"Client deconnecte: {client_addr}")
+            logger.info(f"Clients restants: {len(self.clients) - 1}")
         except Exception as e:
             logger.error(f"Erreur client {client_addr}: {e}", exc_info=True)
         finally:
             self.clients.discard(websocket)
+            logger.info(f"Client retire: {client_addr} (Clients restants: {len(self.clients)})")
     
     async def handle_message(self, websocket: WebSocketServerProtocol, message: str):
-        """Traite un message reçu"""
+        """Traite un message recu"""
         try:
             data = json.loads(message)
             msg_type = data.get('type')
             
-            logger.info(f"Message reçu: {msg_type}")
+            logger.info(f"Message recu: {msg_type}")
             
             if msg_type == 'start_training':
-                # L'interface envoie {type: 'start_training', config: {...}} ou directement les params
-                config = data.get('config', data)  # Supporter les deux formats
+                config = data.get('config', data)
                 await self.start_training(config)
             
             elif msg_type == 'stop_training':
@@ -165,6 +157,16 @@ class BreastAIServer:
             elif msg_type == 'ping':
                 await websocket.send(json.dumps({'type': 'pong'}))
             
+            elif msg_type == 'disconnect':
+                logger.info(f"Client demande deconnexion: {websocket.remote_address}")
+                await websocket.send(json.dumps({
+                    'type': 'disconnect_ack',
+                    'message': 'Deconnexion confirmee',
+                    'timestamp': datetime.now().isoformat()
+                }))
+                await websocket.close()
+                return
+            
             else:
                 logger.warning(f"Type de message inconnu: {msg_type}")
         
@@ -178,21 +180,21 @@ class BreastAIServer:
             })
     
     async def start_training(self, config_data: Dict):
-        """Démarre un nouvel entraînement"""
+        """Demarre un nouvel entrainement"""
         if self.is_training:
             await self.broadcast({
                 'type': 'error',
-                'message': 'Entraînement déjà en cours'
+                'message': 'Entrainement deja en cours'
             })
             return
         
         try:
-            logger.info("Démarrage d'un nouvel entraînement")
+            logger.info("Demarrage entrainement")
             
-            # Mapper la config de l'interface
+            # Mapper la config
             mapped_config = self._map_interface_config(config_data)
             
-            # Créer le système d'entraînement
+            # Creer le systeme
             config = Config(mapped_config)
             self.training_system = TrainingSystem(config, callback=self.broadcast)
             
@@ -201,58 +203,52 @@ class BreastAIServer:
             if not success:
                 await self.broadcast({
                     'type': 'error',
-                    'message': 'Échec de l\'initialisation'
+                    'message': 'Echec de l\'initialisation'
                 })
                 return
             
-            # Lancer l'entraînement en arrière-plan
+            # Lancer l'entrainement
             self.is_training = True
             epochs = config_data.get('epochs', 50)
-            
-            # Stocker la task pour pouvoir la cancel
             self.training_task = asyncio.create_task(self._run_training(epochs))
             
-            logger.info(f"Entraînement lancé: {epochs} epochs")
-        
+            logger.info(f"Entrainement lance: {epochs} epochs")
+            
         except Exception as e:
             logger.error(f"Erreur start_training: {e}", exc_info=True)
             await self.broadcast({
                 'type': 'error',
-                'message': f'Erreur démarrage: {str(e)}'
+                'message': f'Erreur demarrage: {str(e)}'
             })
             self.is_training = False
     
     async def _run_training(self, epochs: int):
-        """Exécute l'entraînement"""
+        """Execute l'entrainement"""
         try:
-            logger.info(f"=== DEBUT TRAINING {epochs} epochs ===")  # DEBUG
             await self.training_system.train(epochs)
-            logger.info("=== FIN TRAINING NORMALE ===")  # DEBUG
         except Exception as e:
-            logger.error(f"CRASH SERVEUR - TRAINING: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"Erreur entrainement: {e}", exc_info=True)
             await self.broadcast({
                 'type': 'error',
-                'message': f'Erreur entraînement: {str(e)}'
+                'message': f'Erreur entrainement: {str(e)}'
             })
         finally:
             self.is_training = False
             self.training_system = None
     
     async def stop_training(self):
-        """Arrête l'entraînement en cours"""
+        """Arrete l'entrainement en cours"""
         if not self.is_training or self.training_system is None:
             await self.broadcast({
                 'type': 'error',
-                'message': 'Aucun entraînement en cours'
+                'message': 'Aucun entrainement en cours'
             })
             return
         
-        logger.info("Arrêt de l'entraînement demandé")
+        logger.info("Arret de l'entrainement demande")
         
-        # Arrêter le système
         await self.training_system.stop()
         
-        # Cancel la task si elle existe
         if self.training_task and not self.training_task.done():
             self.training_task.cancel()
             try:
@@ -270,8 +266,53 @@ class BreastAIServer:
         }
         await websocket.send(json.dumps(status))
     
+    def _normalize_checkpoint_path(self, checkpoint_input: str) -> Path:
+        """
+        CORRECTION CRITIQUE: Normalise et repare les chemins malformes
+        
+        Probleme: L'interface peut envoyer des chemins malformes comme:
+        - 'checkpointslatest_epoch_002.pth' (manque le separateur)
+        - 'latest_epoch_002.pth' (manque le dossier)
+        - 'checkpoints/latest_epoch_002.pth' (correct)
+        - 'checkpoints\\latest_epoch_002.pth' (Windows)
+        
+        Args:
+            checkpoint_input: Chemin potentiellement malformé
+            
+        Returns:
+            Path valide: checkpoints/filename.pth
+        """
+        checkpoint_dir = Path('checkpoints')
+        
+        # 1. Nettoyer le chemin d'entree
+        checkpoint_str = str(checkpoint_input).strip()
+        
+        # 2. CORRECTION CRITIQUE: Detecter et reparer 'checkpointsXXX.pth'
+        if checkpoint_str.startswith('checkpoints') and not checkpoint_str.startswith(('checkpoints/', 'checkpoints\\')):
+            # Malformé: 'checkpointslatest_epoch_002.pth'
+            # Extraire le nom de fichier en retirant 'checkpoints'
+            filename = checkpoint_str[len('checkpoints'):]
+            logger.warning(f"Chemin malformé détecté: '{checkpoint_str}' -> extraction: '{filename}'")
+            full_path = checkpoint_dir / filename
+            logger.info(f"Réparation: '{checkpoint_str}' -> '{full_path}'")
+            return full_path
+        
+        # 3. Convertir en Path pour manipulation
+        path = Path(checkpoint_str)
+        
+        # 4. Si le chemin contient deja le dossier checkpoints (bien formé)
+        if 'checkpoints' in path.parts:
+            logger.debug(f"Chemin déjà complet: '{checkpoint_str}'")
+            return path
+        
+        # 5. Sinon, c'est juste le nom de fichier
+        full_path = checkpoint_dir / path.name
+        logger.debug(f"Ajout du dossier: '{checkpoint_str}' -> '{full_path}'")
+        
+        return full_path
+    
     async def list_checkpoints(self):
-        """Liste les checkpoints disponibles avec métadonnées"""
+        """Liste les checkpoints disponibles avec metadonnees"""
         try:
             import torch
             
@@ -288,15 +329,20 @@ class BreastAIServer:
                 try:
                     stat = ckpt_file.stat()
                     
-                    # Essayer de charger les métadonnées
+                    # Charger les metadonnees avec PyTorch 2.6+ compatibility
                     try:
-                        ckpt_data = torch.load(ckpt_file, map_location='cpu')
+                        import numpy
+                        import torch.serialization
+                        
+                        with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                            ckpt_data = torch.load(ckpt_file, map_location='cpu', weights_only=False)
+                        
                         epoch = ckpt_data.get('epoch', 0)
                         accuracy = ckpt_data.get('best_val_acc', 0.0)
                         architecture = ckpt_data.get('architecture', 'unknown')
                         timestamp = ckpt_data.get('timestamp', '')
-                    except Exception:
-                        # Si échec lecture métadonnées, valeurs par défaut
+                    except Exception as e:
+                        logger.warning(f"Erreur lecture metadonnees {ckpt_file.name}: {e}")
                         epoch = 0
                         accuracy = 0.0
                         architecture = 'unknown'
@@ -316,7 +362,7 @@ class BreastAIServer:
                 except Exception as e:
                     logger.warning(f"Erreur lecture checkpoint {ckpt_file}: {e}")
             
-            # Trier par date (plus récent d'abord)
+            # Trier par date (plus recent d'abord)
             checkpoints.sort(key=lambda x: x['created'], reverse=True)
             
             await self.broadcast({
@@ -324,7 +370,7 @@ class BreastAIServer:
                 'checkpoints': checkpoints
             })
             
-            logger.info(f"Liste de {len(checkpoints)} checkpoints envoyée")
+            logger.info(f"Liste de {len(checkpoints)} checkpoints envoyee")
             
         except Exception as e:
             logger.error(f"Erreur list_checkpoints: {e}", exc_info=True)
@@ -334,19 +380,30 @@ class BreastAIServer:
             })
     
     async def load_checkpoint(self, checkpoint_path: str):
-        """Charge un checkpoint et initialise pour reprendre l'entraînement"""
+        """Charge un checkpoint et initialise pour reprendre l'entrainement"""
         try:
+            # CORRECTION: Normaliser le chemin
+            normalized_path = self._normalize_checkpoint_path(checkpoint_path)
+            
+            # Verifier l'existence
+            if not normalized_path.exists():
+                raise FileNotFoundError(f"Checkpoint introuvable: {normalized_path}")
+            
             await self.broadcast({
                 'type': 'log',
-                'message': f'Chargement checkpoint: {checkpoint_path}',
+                'message': f'Chargement checkpoint: {normalized_path.name}',
                 'level': 'info'
             })
             
-            # Charger les métadonnées du checkpoint
+            # Charger les metadonnees avec PyTorch 2.6+ compatibility
             import torch
-            checkpoint_data = torch.load(checkpoint_path, map_location='cpu')
+            import numpy
+            import torch.serialization
             
-            # Récupérer la config du checkpoint
+            with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                checkpoint_data = torch.load(normalized_path, map_location='cpu', weights_only=False)
+            
+            # Recuperer la config du checkpoint
             saved_config = checkpoint_data.get('config', {})
             
             await self.broadcast({
@@ -355,7 +412,7 @@ class BreastAIServer:
                 'level': 'info'
             })
             
-            # Créer le système d'entraînement avec la config sauvegardée
+            # Creer le systeme d'entrainement avec la config sauvegardee
             from breastai_training import Config, TrainingSystem
             config = Config(saved_config)
             self.training_system = TrainingSystem(config, callback=self.broadcast)
@@ -363,32 +420,39 @@ class BreastAIServer:
             # Setup
             await self.broadcast({
                 'type': 'log',
-                'message': 'Initialisation du système...',
+                'message': 'Initialisation du systeme...',
                 'level': 'info'
             })
             
             success = await self.training_system.setup()
             
             if not success:
-                raise ValueError("Échec du setup")
+                raise ValueError("Echec du setup")
             
-            # Charger le checkpoint
-            start_epoch = self.training_system.load_checkpoint(checkpoint_path)
+            # Charger le checkpoint (utiliser le chemin normalise)
+            start_epoch = self.training_system.load_checkpoint(str(normalized_path))
             
             if start_epoch is None:
-                raise ValueError("Échec du chargement du checkpoint")
+                raise ValueError("Echec du chargement du checkpoint")
             
             await self.broadcast({
                 'type': 'checkpoint_loaded',
-                'checkpoint': checkpoint_path,
-                'start_epoch': start_epoch + 1,  # Reprendre à l'epoch suivante
+                'checkpoint': str(normalized_path),
+                'start_epoch': start_epoch + 1,
                 'best_val_acc': self.training_system.best_val_acc,
-                'message': f'Prêt à reprendre depuis epoch {start_epoch + 1}',
+                'message': f'Pret a reprendre depuis epoch {start_epoch + 1}',
                 'timestamp': datetime.now().isoformat()
             })
             
-            logger.info(f"Checkpoint chargé avec succès: epoch {start_epoch}")
+            logger.info(f"Checkpoint charge avec succes: epoch {start_epoch}")
             
+        except FileNotFoundError as e:
+            logger.error(f"Erreur load_checkpoint: {e}")
+            await self.broadcast({
+                'type': 'error',
+                'message': f'Checkpoint introuvable: {checkpoint_path}'
+            })
+            self.training_system = None
         except Exception as e:
             logger.error(f"Erreur load_checkpoint: {e}", exc_info=True)
             await self.broadcast({
@@ -398,45 +462,64 @@ class BreastAIServer:
             self.training_system = None
     
     async def resume_training(self, checkpoint_path: str, epochs: Optional[int] = None):
-        """Reprend l'entraînement depuis un checkpoint"""
+        """Reprend l'entrainement depuis un checkpoint"""
         try:
             import torch
             
             if self.is_training:
                 await self.broadcast({
                     'type': 'error',
-                    'message': 'Entraînement déjà en cours'
+                    'message': 'Entrainement deja en cours'
                 })
                 return
             
-            # D'abord charger le checkpoint
-            await self.load_checkpoint(checkpoint_path)
+            # CORRECTION: Normaliser le chemin
+            normalized_path = self._normalize_checkpoint_path(checkpoint_path)
+            
+            # Verifier l'existence
+            if not normalized_path.exists():
+                raise FileNotFoundError(f"Checkpoint introuvable: {normalized_path}")
+            
+            # Charger le checkpoint
+            await self.load_checkpoint(str(normalized_path))
             
             if not self.training_system:
-                raise ValueError("Système d'entraînement non initialisé")
+                raise ValueError("Systeme d'entrainement non initialise")
             
-            # Récupérer l'epoch de départ
-            checkpoint_data = torch.load(checkpoint_path, map_location='cpu')
+            # Recuperer l'epoch de depart
+            import numpy
+            import torch.serialization
+            
+            with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                checkpoint_data = torch.load(normalized_path, map_location='cpu', weights_only=False)
+            
             start_epoch = checkpoint_data.get('epoch', 0) + 1
             
-            # Nombre d'epochs total (si pas spécifié, continuer jusqu'au max configuré)
+            # Nombre d'epochs total
             if epochs is None:
                 epochs = self.training_system.config.get('training', 'epochs', default=50)
             
             await self.broadcast({
                 'type': 'log',
-                'message': f'Reprise entraînement epoch {start_epoch} → {epochs}',
+                'message': f'Reprise entrainement epoch {start_epoch} -> {epochs}',
                 'level': 'info'
             })
             
-            # Lancer l'entraînement
+            # Lancer l'entrainement
             self.is_training = True
             self.training_task = asyncio.create_task(
                 self.training_system.train(epochs=epochs, start_epoch=start_epoch)
             )
             
-            logger.info(f"Entraînement repris depuis epoch {start_epoch}")
+            logger.info(f"Entrainement repris depuis epoch {start_epoch}")
             
+        except FileNotFoundError as e:
+            logger.error(f"Erreur resume_training: {e}")
+            await self.broadcast({
+                'type': 'error',
+                'message': f'Checkpoint introuvable: {checkpoint_path}'
+            })
+            self.is_training = False
         except Exception as e:
             logger.error(f"Erreur resume_training: {e}", exc_info=True)
             await self.broadcast({
@@ -448,20 +531,22 @@ class BreastAIServer:
     async def delete_checkpoint(self, checkpoint: str):
         """Supprime un checkpoint"""
         try:
-            ckpt_path = Path(checkpoint)
+            # CORRECTION: Normaliser le chemin
+            ckpt_path = self._normalize_checkpoint_path(checkpoint)
+            
             if ckpt_path.exists():
                 ckpt_path.unlink()
                 await self.broadcast({
                     'type': 'log',
-                    'message': f'Checkpoint supprimé: {checkpoint}',
+                    'message': f'Checkpoint supprime: {ckpt_path.name}',
                     'level': 'success'
                 })
-                # Renvoyer la liste mise à jour
+                # Renvoyer la liste mise a jour
                 await self.list_checkpoints()
             else:
                 await self.broadcast({
                     'type': 'error',
-                    'message': f'Checkpoint introuvable: {checkpoint}'
+                    'message': f'Checkpoint introuvable: {ckpt_path}'
                 })
         except Exception as e:
             logger.error(f"Erreur delete_checkpoint: {e}", exc_info=True)
@@ -471,38 +556,85 @@ class BreastAIServer:
             })
     
     async def export_onnx(self, data: Dict):
-        """Exporte le modèle en ONNX"""
+        """Exporte le modele en ONNX"""
         try:
             checkpoint_path = data.get('checkpoint')
             
+            # CORRECTION: Normaliser le chemin
+            normalized_path = self._normalize_checkpoint_path(checkpoint_path)
+            
+            # Verifier l'existence
+            if not normalized_path.exists():
+                raise FileNotFoundError(f"Checkpoint introuvable: {normalized_path}")
+            
             if not self.training_system:
-                # Besoin de créer un système temporaire pour l'export
+                # Creer un systeme temporaire pour l'export
                 await self.broadcast({
                     'type': 'log',
                     'message': 'Initialisation pour export...',
                     'level': 'info'
                 })
                 
-                # Config minimale
-                from breastai_training import Config, TrainingSystem
-                config = Config()
-                temp_system = TrainingSystem(config, callback=self.broadcast)
+                import torch
+                import numpy
+                import torch.serialization
                 
-                # Setup du modèle
+                with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                    checkpoint_data = torch.load(normalized_path, map_location='cpu', weights_only=False)
+                
+                # Utiliser la config du checkpoint ou fallback
+                if 'config' in checkpoint_data:
+                    logger.info("Utilisation de la configuration du checkpoint")
+                    saved_config = checkpoint_data['config']
+                    from breastai_training import Config, TrainingSystem
+                    config = Config(saved_config)
+                else:
+                    logger.info("Creation configuration depuis metadonnees")
+                    architecture = checkpoint_data.get('architecture', 'efficientnetv2_s')
+                    num_classes = checkpoint_data.get('num_classes', 3)
+                    use_cbam = checkpoint_data.get('use_cbam', True)
+                    image_size = checkpoint_data.get('image_size', 512)
+                    
+                    from breastai_training import Config, TrainingSystem
+                    config_dict = {
+                        'model': {
+                            'architecture': architecture,
+                            'num_classes': num_classes,
+                            'use_cbam': use_cbam,
+                            'dropout_rate': 0.4
+                        },
+                        'data': {
+                            'image_size': image_size,
+                            'batch_size': 1
+                        },
+                        'paths': {
+                            'export_dir': 'exports',
+                            'checkpoint_dir': 'checkpoints'
+                        }
+                    }
+                    config = Config(config_dict)
+                
+                temp_system = TrainingSystem(config, callback=self.broadcast)
                 await temp_system.setup()
                 
-                # Export
-                success = await temp_system.export_onnx(checkpoint_path)
+                # Export avec chemin normalise
+                success = await temp_system.export_onnx(str(normalized_path))
                 
             else:
-                # Utiliser le système existant
-                success = await self.training_system.export_onnx(checkpoint_path)
+                # Utiliser le systeme existant
+                success = await self.training_system.export_onnx(str(normalized_path))
             
             if success:
-                logger.info("Export ONNX réussi")
+                logger.info("Export ONNX reussi")
             else:
-                logger.error("Export ONNX échoué")
+                logger.error("Export ONNX echoue")
                 
+        except FileNotFoundError as e:
+            logger.error(f"Erreur export_onnx: {e}")
+            await self.broadcast({
+                'type': 'error',
+                'message': f'Checkpoint introuvable: {checkpoint_path}'
+            })
         except Exception as e:
             logger.error(f"Erreur export_onnx: {e}", exc_info=True)
             await self.broadcast({
@@ -511,10 +643,10 @@ class BreastAIServer:
             })
     
     async def system_diagnostics(self):
-        """Renvoie les diagnostics système"""
-        import psutil
-        
+        """Renvoie les diagnostics systeme"""
         try:
+            import psutil
+            
             diagnostics = {
                 'type': 'system_diagnostics',
                 'cpu_percent': psutil.cpu_percent(interval=1),
@@ -526,7 +658,7 @@ class BreastAIServer:
             }
             
             await self.broadcast(diagnostics)
-            logger.info("Diagnostics système envoyés")
+            logger.info("Diagnostics systeme envoyes")
             
         except Exception as e:
             logger.error(f"Erreur system_diagnostics: {e}", exc_info=True)
@@ -536,7 +668,7 @@ class BreastAIServer:
             })
     
     def _map_interface_config(self, interface_config: Dict) -> Dict:
-        """Mappe la config de l'interface vers notre structure"""
+        """Mappe la config de l'interface vers la structure interne"""
         config = {
             'paths': {
                 'data_dir': interface_config.get('data_path', 'data'),
@@ -550,7 +682,6 @@ class BreastAIServer:
                 'scheduler': interface_config.get('scheduler', 'cosine'),
                 'label_smoothing': interface_config.get('label_smoothing', 0.1),
                 'gradient_clip': interface_config.get('gradient_clip', 1.0),
-                # 🆕 Features avancées depuis interface
                 'use_ema': interface_config.get('use_ema', False),
                 'ema_decay': interface_config.get('ema_decay', 0.9998),
                 'focal_loss': {
@@ -589,37 +720,33 @@ class BreastAIServer:
             }
         }
         
-        # Log la config reçue
-        logger.info(f"Config mappée: model={config['model']['architecture']}, "
+        logger.info(f"Config mappee: model={config['model']['architecture']}, "
                    f"epochs={config['training']['epochs']}, "
-                   f"batch={config['data']['batch_size']}, "
-                   f"lr={config['training']['learning_rate']}")
+                   f"batch={config['data']['batch_size']}")
         
         return config
     
     async def start(self):
-        """Démarre le serveur"""
+        """Demarre le serveur"""
         logger.info("="*80)
-        logger.info("BREASTAI WEBSOCKET SERVER v3.3.0 - SIMPLIFIE")
-        logger.info(f"Démarrage sur ws://{self.host}:{self.port}")
+        logger.info("BREASTAI WEBSOCKET SERVER v3.3.1 - PRODUCTION")
+        logger.info(f"Demarrage sur ws://{self.host}:{self.port}")
         logger.info("="*80)
-        
-        # SYSTÈME SIMPLE - PAS DE WORKER THREAD
         
         async with websockets.serve(self.handle_client, self.host, self.port):
-            logger.info("Serveur prêt! En attente de connexions...")
-            await asyncio.Future()  # Run forever
+            logger.info("Serveur pret! En attente de connexions...")
+            await asyncio.Future()
 
 # ==================================================================================
-# POINT D'ENTRÉE
+# POINT D'ENTREE
 # ==================================================================================
 
 async def main():
-    # Créer les dossiers nécessaires
+    # Creer les dossiers necessaires
     Path('logs').mkdir(exist_ok=True)
     Path('checkpoints').mkdir(exist_ok=True)
     
-    # Démarrer le serveur
+    # Demarrer le serveur
     server = BreastAIServer(host='localhost', port=8765)
     await server.start()
 
@@ -627,6 +754,6 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("\nServeur arrêté par l'utilisateur")
+        logger.info("\nServeur arrete par l'utilisateur")
     except Exception as e:
         logger.error(f"Erreur fatale: {e}", exc_info=True)

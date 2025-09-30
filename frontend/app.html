@@ -489,11 +489,17 @@
                     <button class="btn btn-primary" id="connectBtn" onclick="connectServer()">
                         🔌 Se connecter
                     </button>
+                    <button class="btn btn-secondary" id="disconnectBtn" onclick="disconnectServer()" style="display: none;">
+                        🔌 Déconnecter
+                    </button>
                 </div>
 
                 <!-- TRAINING CONTROLS -->
                 <div class="section">
                     <div class="section-title">Entraînement</div>
+                    <div id="trainingStatus" style="font-size: 12px; color: #64748b; margin-bottom: 10px; text-align: center;">
+                        Prêt à démarrer
+                    </div>
                     <button class="btn btn-primary" id="startBtn" onclick="startTraining()" disabled>
                         ▶️ Démarrer
                     </button>
@@ -614,6 +620,17 @@
                     <button class="btn btn-secondary" onclick="systemDiagnostics()">
                         ⚙️ Diagnostics
                     </button>
+                    <button class="btn btn-secondary" onclick="autoRefreshCheckpoints()">
+                        🔄 Auto-refresh
+                    </button>
+                </div>
+                
+                <!-- CHECKPOINT STATUS -->
+                <div class="section" id="checkpointStatus" style="display: none;">
+                    <div class="section-title">Derniers Checkpoints</div>
+                    <div id="recentCheckpoints" style="font-size: 12px; color: #64748b;">
+                        Aucun checkpoint récent
+                    </div>
                 </div>
             </div>
 
@@ -735,15 +752,15 @@
                 isConnected = true;
                 updateConnectionStatus(true);
                 logConsole('✓ Connecté au serveur BreastAI', 'success');
-                document.getElementById('startBtn').disabled = false;
+                updateButtonStates();
             };
 
             websocket.onclose = () => {
                 isConnected = false;
+                isTraining = false;
                 updateConnectionStatus(false);
                 logConsole('✗ Déconnecté du serveur', 'error');
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('stopBtn').disabled = true;
+                updateButtonStates();
             };
 
             websocket.onerror = (error) => {
@@ -751,25 +768,12 @@
             };
 
             websocket.onmessage = (event) => {
-                messageCount++;
-                
-                // DIAGNOSTIC BRUTAL - FORCER AFFICHAGE CONSOLE
-                console.log(`🔥🔥🔥 MESSAGE #${messageCount} REÇU:`, event.data);
-                
-                // FORCER AFFICHAGE IMMÉDIAT DANS L'INTERFACE
-                logConsole(`🔥 MSG #${messageCount}: ${event.data.substring(0, 50)}...`, 'warning');
-                
-                // FORCER FLUSH DOM IMMÉDIAT
-                document.body.style.display = 'none';
-                document.body.offsetHeight; // Force reflow
-                document.body.style.display = '';
-                
                 try {
                     const data = JSON.parse(event.data);
                     handleServerMessage(data);
                 } catch (e) {
-                    console.error('🚨 ERREUR PARSING:', e, 'Data:', event.data);
-                    logConsole(`🚨 ERREUR JSON: ${e.message}`, 'error');
+                    console.error('Erreur parsing message:', e);
+                    logConsole(`Erreur JSON: ${e.message}`, 'error');
                 }
             };
         }
@@ -787,70 +791,95 @@
             }
         }
 
+        function updateButtonStates() {
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const trainingStatus = document.getElementById('trainingStatus');
+            
+            if (!isConnected) {
+                // Déconnecté
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                connectBtn.style.display = 'block';
+                connectBtn.textContent = '🔌 Se connecter';
+                connectBtn.disabled = false;
+                disconnectBtn.style.display = 'none';
+                trainingStatus.textContent = 'Déconnecté du serveur';
+                trainingStatus.style.color = '#ef4444';
+            } else if (isTraining) {
+                // Entraînement en cours
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = 'block';
+                disconnectBtn.textContent = '🔌 Déconnecter';
+                disconnectBtn.disabled = false;
+                trainingStatus.textContent = '🔄 Entraînement en cours...';
+                trainingStatus.style.color = '#f59e0b';
+            } else {
+                // Connecté, prêt à entraîner
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                connectBtn.style.display = 'none';
+                disconnectBtn.style.display = 'block';
+                disconnectBtn.textContent = '🔌 Déconnecter';
+                disconnectBtn.disabled = false;
+                trainingStatus.textContent = '✅ Prêt à démarrer';
+                trainingStatus.style.color = '#22c55e';
+            }
+        }
+
+        function disconnectServer() {
+            if (websocket) {
+                // Envoyer un message de déconnexion avant de fermer
+                try {
+                    websocket.send(JSON.stringify({
+                        type: 'disconnect',
+                        message: 'Déconnexion demandée par l\'utilisateur',
+                        timestamp: new Date().toISOString()
+                    }));
+                } catch (e) {
+                    console.log('Impossible d\'envoyer message de déconnexion:', e);
+                }
+                
+                websocket.close();
+                logConsole('Déconnexion demandée...', 'info');
+            }
+        }
+
         // ==================================================================================
         // MESSAGE HANDLERS
         // ==================================================================================
         function handleServerMessage(data) {
-            console.log('🎯 HANDLE MESSAGE:', data);
+            const type = data.type;
             
-            // DÉCODAGE FORMAT COMPACT
-            let type = data.t || data.type;
-            
-            // DIAGNOSTIC FORCE - AFFICHAGE BRUTAL
-            logConsole(`🎯 TRAITEMENT: ${type} = ${JSON.stringify(data)}`, 'info');
-            
-            // TRAITEMENT IMMÉDIAT + FORCE FLUSH
-            if (type === 'log' || type === 'l') {
-                const message = data.m || data.message;
-                const level = data.l === 'i' ? 'info' : (data.l === 's' ? 'success' : (data.l === 'w' ? 'warning' : (data.l === 'e' ? 'error' : (data.level || 'info'))));
-                
-                // AFFICHAGE DOUBLE POUR FORCER
-                logConsole(`[TRAINING] ${message}`, level);
-                logConsole(`[COPY] ${message}`, 'warning');
-                
-                // FORCER SCROLL + REFRESH COMPLET
-                setTimeout(() => {
-                    const console = document.getElementById('console');
-                    if (console) {
-                        console.scrollTop = console.scrollHeight;
-                        console.style.display = 'none';
-                        console.offsetHeight;
-                        console.style.display = '';
-                    }
-                }, 1);
+            // Traitement des messages de log
+            if (type === 'log') {
+                const message = data.message;
+                const level = data.level || 'info';
+                logConsole(message, level);
             }
             
-            if (type === 'bp' || type === 'batch_progress') {
-                const batch = data.b || data.batch;
-                const total = data.T || data.total || data.total_batches;
-                const loss = data.L || data.loss || data.current_loss;
-                const acc = data.a || data.acc || data.current_accuracy;
+            // Traitement du progrès des batches
+            else if (type === 'batch_progress') {
+                const batch = data.batch;
+                const total = data.total_batches;
+                const loss = data.current_loss;
+                const acc = data.current_accuracy;
                 
-                // FORCER AFFICHAGE DASHBOARD
                 const progress = ((batch / total) * 100).toFixed(1);
-                const text = `🔥 LIVE: Batch ${batch}/${total} (${progress}%) - Loss: ${loss} - Acc: ${acc}%`;
+                const text = `Batch ${batch}/${total} (${progress}%) - Loss: ${loss.toFixed(4)} - Acc: ${acc.toFixed(1)}%`;
                 
-                // AFFICHAGE MULTIPLE POUR FORCER
-                logConsole(text, 'success');
+                logConsole(text, 'info');
                 
-                const element = document.getElementById('batchProgress');
-                if (element) {
-                    element.textContent = text;
-                    element.style.backgroundColor = '#ffff00';  // Jaune flash
-                    setTimeout(() => element.style.backgroundColor = '', 500);
-                }
-                
+                // Mise à jour de la barre de progression
                 const progressFill = document.getElementById('progressFill');
                 if (progressFill) {
                     progressFill.style.width = progress + '%';
                     progressFill.textContent = progress + '%';
-                    progressFill.style.backgroundColor = '#00ff00';  // Vert flash
-                    setTimeout(() => progressFill.style.backgroundColor = '#4CAF50', 500);
                 }
-                
-                // FORCER REFRESH DOM BRUTAL
-                document.body.style.transform = 'scale(1.0001)';
-                setTimeout(() => document.body.style.transform = '', 10);
             }
 
             switch(type) {
@@ -867,14 +896,10 @@
 
                 case 'training_started':
                     isTraining = true;
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
+                    updateButtonStates();
                     logConsole('▶️ Entraînement démarré !', 'success');
                     break;
 
-                case 'batch_progress':
-                    updateBatchProgress(data);
-                    break;
 
                 case 'training_update':
                     updateTrainingMetrics(data);
@@ -882,15 +907,13 @@
 
                 case 'training_complete':
                     isTraining = false;
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
+                    updateButtonStates();
                     logConsole('✓ Entraînement terminé !', 'success');
                     break;
 
                 case 'training_stopped':
                     isTraining = false;
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = true;
+                    updateButtonStates();
                     logConsole('⏹️ Entraînement arrêté', 'warning');
                     break;
 
@@ -904,6 +927,18 @@
 
                 case 'checkpoint_loaded':
                     logConsole(`✓ Checkpoint chargé - Reprise depuis epoch ${data.start_epoch}`, 'success');
+                    break;
+
+                case 'checkpoint_saved':
+                    logConsole(`💾 Checkpoint sauvegardé: ${data.filename} (Epoch ${data.epoch}, Acc: ${data.accuracy.toFixed(2)}%)`, 'success');
+                    
+                    // Mettre à jour les checkpoints récents dans la sidebar
+                    updateRecentCheckpoints(data);
+                    
+                    // Rafraîchir automatiquement la liste des checkpoints si l'onglet est ouvert
+                    if (document.getElementById('checkpoints').classList.contains('active')) {
+                        setTimeout(() => listCheckpoints(), 500); // Délai pour être sûr que le fichier soit écrit
+                    }
                     break;
 
                 case 'export_complete':
@@ -1085,37 +1120,130 @@
 
             list.innerHTML = '';
             
-            checkpoints.forEach(cp => {
+            // FILTRER POUR N'AFFICHER QUE LE MEILLEUR ET LE DERNIER
+            let bestCheckpoint = null;
+            let latestCheckpoint = null;
+            let otherCheckpoints = [];
+            
+            // Trouver le MEILLEUR checkpoint (plus haute accuracy)
+            const bestCandidates = checkpoints.filter(cp => cp.filename.includes('best'));
+            if (bestCandidates.length > 0) {
+                bestCheckpoint = bestCandidates.reduce((best, current) => 
+                    current.accuracy > best.accuracy ? current : best
+                );
+            }
+            
+            // Trouver le DERNIER checkpoint (latest le plus récent)
+            const latestCandidates = checkpoints.filter(cp => cp.filename.includes('latest'));
+            if (latestCandidates.length > 0) {
+                latestCheckpoint = latestCandidates.reduce((latest, current) => 
+                    new Date(current.created) > new Date(latest.created) ? current : latest
+                );
+            }
+            
+            // Autres checkpoints (periodic, emergency, etc.) - triés par date
+            otherCheckpoints = checkpoints.filter(cp => 
+                !cp.filename.includes('best') && !cp.filename.includes('latest')
+            ).sort((a, b) => new Date(b.created) - new Date(a.created));
+            
+            // Construire la liste finale : BEST + LATEST + autres
+            const displayCheckpoints = [];
+            if (bestCheckpoint) displayCheckpoints.push(bestCheckpoint);
+            if (latestCheckpoint) displayCheckpoints.push(latestCheckpoint);
+            displayCheckpoints.push(...otherCheckpoints);
+            
+            displayCheckpoints.forEach(cp => {
                 const item = document.createElement('div');
                 item.className = 'checkpoint-item';
                 
                 const sizeMB = (cp.size / (1024 * 1024)).toFixed(2);
                 
+                // Déterminer le type et l'icône
+                let type = 'periodic';
+                let typeIcon = '💾';
+                let typeColor = '#2563eb';
+                let isCurrentBest = false;
+                let isCurrentLatest = false;
+                
+                if (cp.filename.includes('best')) {
+                    type = 'best';
+                    typeIcon = '🏆';
+                    typeColor = '#16a34a';
+                    isCurrentBest = true;
+                } else if (cp.filename.includes('latest')) {
+                    type = 'latest';
+                    typeIcon = '🔄';
+                    typeColor = '#0891b2';
+                    isCurrentLatest = true;
+                } else if (cp.filename.includes('emergency')) {
+                    type = 'emergency';
+                    typeIcon = '⚠️';
+                    typeColor = '#dc2626';
+                } else if (cp.filename.includes('early_stop')) {
+                    type = 'early_stop';
+                    typeIcon = '🛑';
+                    typeColor = '#f59e0b';
+                }
+                
+                // Calculer le temps écoulé
+                const timeAgo = getTimeAgo(new Date(cp.created));
+                
+                // Style spécial pour le meilleur et le dernier
+                const specialStyle = (isCurrentBest || isCurrentLatest) ? 
+                    'border: 3px solid ' + typeColor + '; box-shadow: 0 0 15px ' + typeColor + '40;' : '';
+                
                 item.innerHTML = `
-                    <div class="checkpoint-header">
-                        <div class="checkpoint-name">${cp.filename}</div>
-                        <div class="checkpoint-badge ${cp.type}">${cp.type}</div>
+                    <div class="checkpoint-header" style="${specialStyle}">
+                        <div class="checkpoint-name" style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 18px;">${typeIcon}</span>
+                            <span>${cp.filename}</span>
+                            ${isCurrentBest ? '<span style="background: #16a34a; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">MEILLEUR ACTUEL</span>' : ''}
+                            ${isCurrentLatest ? '<span style="background: #0891b2; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">DERNIER</span>' : ''}
+                        </div>
+                        <div class="checkpoint-badge" style="background: ${typeColor}20; color: ${typeColor};">
+                            ${type.toUpperCase()}
+                        </div>
                     </div>
                     <div class="checkpoint-info">
                         <div><strong>Epoch:</strong> ${cp.epoch}</div>
                         <div><strong>Accuracy:</strong> ${cp.accuracy.toFixed(2)}%</div>
-                        <div><strong>Size:</strong> ${sizeMB} MB</div>
+                        <div><strong>Taille:</strong> ${sizeMB} MB</div>
                     </div>
                     <div class="checkpoint-info" style="margin-top: 10px;">
                         <div><strong>Architecture:</strong> ${cp.architecture}</div>
-                        <div><strong>Date:</strong> ${new Date(cp.created).toLocaleDateString()}</div>
+                        <div><strong>Date:</strong> ${timeAgo}</div>
+                        <div><strong>Chemin:</strong> <small style="color: #64748b;">${cp.path}</small></div>
                     </div>
                     <div class="checkpoint-actions">
-                        <button class="btn btn-primary btn-small" onclick="resumeFromCheckpoint('${cp.path}')">🔄 Reprendre</button>
-                        <button class="btn btn-secondary btn-small" onclick="exportFromCheckpoint('${cp.path}')">📦 Export ONNX</button>
-                        <button class="btn btn-secondary btn-small" onclick="deleteCheckpoint('${cp.path}')">🗑️ Supprimer</button>
+                        <button class="btn btn-primary btn-small" onclick="resumeFromCheckpoint('${cp.path}')" ${isTraining ? 'disabled' : ''}>
+                            🔄 Reprendre
+                        </button>
+                        <button class="btn btn-secondary btn-small" onclick="exportFromCheckpoint('${cp.path}')">
+                            📦 Export ONNX
+                        </button>
+                        <button class="btn btn-secondary btn-small" onclick="deleteCheckpoint('${cp.path}')" ${isTraining ? 'disabled' : ''}>
+                            🗑️ Supprimer
+                        </button>
                     </div>
                 `;
                 
                 list.appendChild(item);
             });
 
-            logConsole(`✓ ${checkpoints.length} checkpoints chargés`, 'success');
+            logConsole(`✓ ${checkpoints.length} checkpoints chargés et triés`, 'success');
+        }
+        
+        function getTimeAgo(date) {
+            const now = new Date();
+            const diff = now - date;
+            const minutes = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+            
+            if (minutes < 1) return 'À l\'instant';
+            if (minutes < 60) return `Il y a ${minutes} min`;
+            if (hours < 24) return `Il y a ${hours}h`;
+            return `Il y a ${days} jour${days > 1 ? 's' : ''}`;
         }
 
         function deleteCheckpoint(path) {
@@ -1162,6 +1290,46 @@
         function displayDiagnostics(data) {
             const msg = `💻 CPU: ${data.cpu_percent}% | 🧠 RAM: ${data.memory_used_gb.toFixed(2)}/${data.memory_total_gb.toFixed(2)} GB (${data.memory_percent}%) | 💾 Disk: ${data.disk_percent}%`;
             logConsole(msg, 'info');
+        }
+        
+        // Variables pour l'auto-refresh
+        let autoRefreshInterval = null;
+        let autoRefreshEnabled = false;
+        
+        function autoRefreshCheckpoints() {
+            if (autoRefreshEnabled) {
+                // Arrêter l'auto-refresh
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                autoRefreshEnabled = false;
+                logConsole('🔄 Auto-refresh désactivé', 'info');
+                document.querySelector('[onclick="autoRefreshCheckpoints()"]').textContent = '🔄 Auto-refresh';
+            } else {
+                // Démarrer l'auto-refresh toutes les 10 secondes
+                autoRefreshEnabled = true;
+                autoRefreshInterval = setInterval(() => {
+                    if (isConnected && document.getElementById('checkpoints').classList.contains('active')) {
+                        listCheckpoints();
+                    }
+                }, 10000);
+                logConsole('🔄 Auto-refresh activé (10s)', 'success');
+                document.querySelector('[onclick="autoRefreshCheckpoints()"]').textContent = '⏹️ Stop refresh';
+            }
+        }
+        
+        // Mettre à jour le statut des checkpoints récents
+        function updateRecentCheckpoints(checkpointData) {
+            const statusDiv = document.getElementById('checkpointStatus');
+            const recentDiv = document.getElementById('recentCheckpoints');
+            
+            if (statusDiv && recentDiv) {
+                statusDiv.style.display = 'block';
+                recentDiv.innerHTML = `
+                    <div style="margin-bottom: 5px;">💾 ${checkpointData.filename}</div>
+                    <div style="margin-bottom: 5px;">📊 Epoch ${checkpointData.epoch} - ${checkpointData.accuracy.toFixed(1)}%</div>
+                    <div>${(checkpointData.size_mb || 0).toFixed(1)} MB</div>
+                `;
+            }
         }
 
         // ==================================================================================

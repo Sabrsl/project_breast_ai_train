@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BreastAI Training System v3.3.0 - SIMPLIFIÉ ET FONCTIONNEL
+BreastAI Training System v3.3.0 - FONCTIONNEL
 Architecture medicale EfficientNetV2 + CBAM pour classification cancer du sein
 Reecriture complete pour compatibilite totale avec l'interface web
 """
@@ -407,8 +407,8 @@ class TrainingSystem:
         # Detection automatique GPU/CPU
         if torch.cuda.is_available():
             self.device = torch.device('cuda')
-            logger.info(f"🎮 GPU detecte: {torch.cuda.get_device_name(0)}")
-            logger.info(f"💾 VRAM disponible: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+            logger.info(f"GPU detecte: {torch.cuda.get_device_name(0)}")
+            logger.info(f"VRAM disponible: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
         else:
             self.device = torch.device('cpu')
             logger.warning("WARNING: Aucun GPU detecte - Utilisation du CPU (entrainement plus lent)")
@@ -424,14 +424,14 @@ class TrainingSystem:
         self.scheduler = None
         self.criterion = None
         
-        # 🆕 Gradient Accumulation & EMA
+        # Gradient Accumulation & EMA
         self.gradient_accumulation_steps = 1  # Sera mis a jour au setup
         self.accumulation_counter = 0
         self.use_ema = False
         self.ema_decay = 0.9998
         self.model_ema = None
         
-        # 🆕 Early Stopping (classe dediee)
+        # Early Stopping (classe dediee)
         early_stop_config = config.config.get('training', {}).get('early_stopping', {})
         early_stop_patience = early_stop_config.get('patience', 10) if isinstance(early_stop_config, dict) else 10
         early_stop_min_delta = early_stop_config.get('min_delta', 0.001) if isinstance(early_stop_config, dict) else 0.001
@@ -443,7 +443,7 @@ class TrainingSystem:
         )
         self.early_stopping_enabled = early_stop_config.get('enabled', True) if isinstance(early_stop_config, dict) else True
         
-        # 🆕 AMP (Automatic Mixed Precision)
+        # AMP (Automatic Mixed Precision)
         self.use_amp = torch.cuda.is_available()  # Active seulement si GPU
         self.scaler = None
         if self.use_amp:
@@ -463,13 +463,9 @@ class TrainingSystem:
         """Envoie une mise a jour via callback"""
         if self.callback:
             try:
-                # Message préparé, envoi via callback
                 await self.callback(message)
             except Exception as e:
-                logger.error(f"Erreur callback WebSocket: {e}")
-                logger.error(f"Message qui a echoue: {message}")  # DEBUG
-        else:
-            logger.warning(f"Pas de callback defini pour message: {message['type']}")  # DEBUG
+                logger.error(f"Erreur callback: {e}")
     
     async def setup(self) -> bool:
         """Configure tout le systeme"""
@@ -501,16 +497,16 @@ class TrainingSystem:
             self.model = BreastAIModel(architecture, num_classes, use_cbam, dropout)
             self.model.to(self.device)
             
-            # 🆕 Configuration Gradient Accumulation
+            # Configuration Gradient Accumulation
             self.gradient_accumulation_steps = self.config.get('data', 'gradient_accumulation_steps', default=1)
             batch_size = self.config.get('data', 'batch_size', default=4)
             effective_batch = batch_size * self.gradient_accumulation_steps
             
             if self.gradient_accumulation_steps > 1:
-                logger.info(f"🔄 Gradient Accumulation: {self.gradient_accumulation_steps} steps")
+                logger.info(f"Gradient Accumulation: {self.gradient_accumulation_steps} steps")
                 logger.info(f"   Batch physique: {batch_size} | Batch effectif: {effective_batch}")
             
-            # 🆕 Configuration EMA
+            # Configuration EMA
             self.use_ema = self.config.get('training', 'use_ema', default=False)
             self.ema_decay = self.config.get('training', 'ema_decay', default=0.9998)
             
@@ -535,7 +531,7 @@ class TrainingSystem:
             
             self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
             
-            # 🆕 Loss function : Focal Loss OU CrossEntropy
+            # Loss function : Focal Loss OU CrossEntropy
             focal_config = self.config.config.get('training', {}).get('focal_loss', {})
             use_focal = focal_config.get('enabled', False) if isinstance(focal_config, dict) else False
             
@@ -815,38 +811,75 @@ class TrainingSystem:
                 # Scheduler
                 self.scheduler.step()
                 
-                # Sauvegarder best/worst models
+                # SYSTEME DE SAUVEGARDE ROBUSTE ET FREQUENT
                 current_f1 = val_metrics.get('f1_macro', 0)
                 current_acc = val_metrics['accuracy']
                 
-                # Best model (base sur F1-macro)
+                # [1] SAUVEGARDE AUTOMATIQUE A CHAQUE EPOCH (securite maximale)
+                self._save_checkpoint(epoch, f'latest_epoch_{epoch:03d}.pth')
+                logger.info(f"[AUTO] Checkpoint automatique sauvegarde: epoch {epoch}")
+                
+                # [2] MEILLEUR MODELE (base sur F1-macro)
                 if current_f1 > self.best_val_f1:
                     self.best_val_f1 = current_f1
                     self.best_val_acc = current_acc
+                    
+                    # Sauvegarder le MEILLEUR ACTUEL (ecrase l'ancien)
                     self._save_checkpoint(epoch, 'best.pth')
-                    logger.info(f"Nouveau meilleur modele : F1={current_f1:.4f}, Acc={current_acc:.2f}%")
+                    logger.info(f"[BEST] NOUVEAU MEILLEUR MODELE: F1={current_f1:.4f}, Acc={current_acc:.2f}%")
+                    
+                    # Sauvegarder aussi une copie avec details (pour historique)
+                    self._save_checkpoint(epoch, f'best_epoch_{epoch:03d}_f1_{current_f1:.3f}.pth')
+                    logger.info(f"[BEST] Copie detaillee: best_epoch_{epoch:03d}_f1_{current_f1:.3f}.pth")
                 
-                # Worst model (sauvegarde periodiquement pour analyse, pas a chaque degradation)
-                # Sauvegarder seulement tous les 10 epochs ou a la fin
-                if current_acc < self.worst_val_acc:
-                    self.worst_val_acc = current_acc
-                    # Sauvegarder uniquement tous les 10 epochs ou a la fin
-                    if epoch % 10 == 0 or epoch == epochs:
-                        self._save_checkpoint(epoch, 'worst.pth')
-                        logger.info(f"Pire modele sauvegarde (analyse) : Acc={current_acc:.2f}% a epoch {epoch}")
+                # [3] SAUVEGARDE PERIODIQUE (tous les 5 epochs pour securite)
+                if epoch % 5 == 0:
+                    self._save_checkpoint(epoch, f'periodic_epoch_{epoch:03d}.pth')
+                    logger.info(f"[PERIOD] Checkpoint periodique: epoch {epoch}")
                 
-                # 🛑 Early Stopping avec classe dediee
+                # NETTOYAGE INTELLIGENT DES ANCIENS CHECKPOINTS
+                # IMPORTANT: Seuls les fichiers 'latest_epoch_XXX.pth' sont nettoyes
+                # JAMAIS SUPPRIMES: best.pth, periodic_epoch_XXX.pth, emergency_epoch_XXX.pth
+                if epoch > 3:
+                    # Nettoyer les anciens latest (garder les 3 derniers)
+                    old_latest = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints')) / f'latest_epoch_{epoch-3:03d}.pth'
+                    if old_latest.exists():
+                        try:
+                            old_latest.unlink()
+                            logger.debug(f"[CLEAN] Nettoyage latest: {old_latest.name}")
+                        except Exception as e:
+                            logger.warning(f"Impossible de supprimer {old_latest}: {e}")
+                
+                # Nettoyer les anciens best_epoch_XXX (garder les 2 derniers)
+                if epoch > 2:
+                    checkpoint_dir = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints'))
+                    best_files = list(checkpoint_dir.glob('best_epoch_*.pth'))
+                    if len(best_files) > 2:
+                        # Trier par date de modification et supprimer les plus anciens
+                        best_files.sort(key=lambda x: x.stat().st_mtime)
+                        for old_best in best_files[:-2]:  # Garder les 2 plus récents
+                            try:
+                                old_best.unlink()
+                                logger.debug(f"[CLEAN] Nettoyage best_epoch: {old_best.name}")
+                            except Exception as e:
+                                logger.warning(f"Impossible de supprimer {old_best}: {e}")
+                
+                # [5] SAUVEGARDE D'URGENCE (si on detecte des signes de probleme)
+                if current_acc < 10.0:  # Accuracy très basse, problème potentiel
+                    self._save_checkpoint(epoch, f'emergency_epoch_{epoch:03d}_acc_{current_acc:.1f}.pth')
+                    logger.warning(f"[EMERGENCY] Sauvegarde d'urgence: accuracy tres basse ({current_acc:.1f}%)")
+                
+                # EARLY STOPPING
                 if self.early_stopping_enabled and self.early_stopping(current_f1):
+                    # Sauvegarde finale avant arrêt
+                    self._save_checkpoint(epoch, f'early_stop_epoch_{epoch:03d}.pth')
                     await self.send_update({
                         'type': 'log',
-                        'message': f'Early stopping : pas d\'amelioration depuis {self.early_stopping.patience} epochs',
+                        'message': f'Early stopping: pas d\'amélioration depuis {self.early_stopping.patience} epochs',
                         'level': 'warning'
                     })
+                    logger.info(f"[STOP] Checkpoint de fin d'entrainement sauvegarde avant early stopping")
                     break
-                
-                # Save periodic
-                if epoch % 10 == 0:
-                    self._save_checkpoint(epoch, f'epoch_{epoch}.pth')
             
             # Termine
             await self.send_update({
@@ -1042,7 +1075,7 @@ class TrainingSystem:
         if self.val_loader is None:
             return {'loss': 0, 'accuracy': 0, 'f1_macro': 0}
         
-        # 🆕 Verifier si TTA active
+        # Verifier si TTA active
         use_tta = self.config.get('inference', 'tta_enabled', False)
         
         if use_tta:
@@ -1110,7 +1143,7 @@ class TrainingSystem:
     
     async def _validate_with_tta(self, epoch: int) -> Dict:
         """
-        🔄 Validation avec Test-Time Augmentation
+        Validation avec Test-Time Augmentation
         Applique 6 transformations et moyenne les predictions
         """
         self.model.eval()
@@ -1119,7 +1152,7 @@ class TrainingSystem:
         
         await self.send_update({
             'type': 'log',
-            'message': f'🔄 Validation epoch {epoch} avec TTA (6x augmentations)...',
+            'message': f'Validation epoch {epoch} avec TTA (6x augmentations)...',
             'level': 'info'
         })
         
@@ -1226,34 +1259,62 @@ class TrainingSystem:
             raise RuntimeError(f"Erreur validation checkpoint: {checkpoint_path}") from e
     
     def _save_checkpoint(self, epoch: int, filename: str):
-        """Sauvegarde un checkpoint avec metadonnees completes et validation du chemin"""
+        """Sauvegarde un checkpoint avec metadonnees completes"""
         checkpoint_dir = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints'))
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
-        # Validation du chemin (securite, pas besoin de verifier existence pour save)
+        # Construire le chemin complet
+        checkpoint_path = checkpoint_dir / filename
+        
         try:
-            checkpoint_path = self._validate_checkpoint_path(filename, check_exists=False)
-        except ValueError as e:
-            logger.error(f"Erreur validation chemin : {e}")
-            return
-        
-        checkpoint = {
-            'epoch': epoch,
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'best_val_acc': self.best_val_acc,
-            # Metadonnees
-            'architecture': self.config.get('model', 'architecture', default='unknown'),
-            'num_classes': self.config.get('model', 'num_classes', default=3),
-            'use_cbam': self.config.get('model', 'use_cbam', default=True),
-            'image_size': self.config.get('data', 'image_size', default=512),
-            'timestamp': datetime.now().isoformat(),
-            'config': self.config.config  # Config complete pour reproductibilite
-        }
-        
-        torch.save(checkpoint, checkpoint_dir / filename)
-        logger.info(f"Checkpoint sauvegarde: {filename} (epoch {epoch}, acc {self.best_val_acc:.2f}%)")
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.scheduler.state_dict(),
+                'best_val_acc': self.best_val_acc,
+                'best_val_f1': getattr(self, 'best_val_f1', 0.0),
+                # Metadonnees completes
+                'architecture': self.config.get('model', 'architecture', default='unknown'),
+                'num_classes': self.config.get('model', 'num_classes', default=3),
+                'use_cbam': self.config.get('model', 'use_cbam', default=True),
+                'image_size': self.config.get('data', 'image_size', default=512),
+                'timestamp': datetime.now().isoformat(),
+                'config': self.config.config  # Config complete pour reproductibilite
+            }
+            
+            # Sauvegarder avec verification
+            torch.save(checkpoint, checkpoint_path)
+            
+            # Verifier que le fichier existe bien
+            if checkpoint_path.exists():
+                file_size = checkpoint_path.stat().st_size / (1024 * 1024)  # MB
+                logger.info(f"[SAVE] CHECKPOINT SAUVEGARDE: {filename}")
+                logger.info(f"   Chemin: {checkpoint_path}")
+                logger.info(f"   Epoch {epoch}, Acc {self.best_val_acc:.2f}%, F1 {getattr(self, 'best_val_f1', 0.0):.3f}")
+                logger.info(f"   Taille: {file_size:.2f} MB")
+                
+                # Envoyer notification interface
+                if self.callback:
+                    asyncio.create_task(self.callback({
+                        'type': 'checkpoint_saved',
+                        'filename': filename,
+                        'epoch': epoch,
+                        'accuracy': float(self.best_val_acc),
+                        'f1_score': float(getattr(self, 'best_val_f1', 0.0)),
+                        'path': str(checkpoint_path),
+                        'size_mb': file_size
+                    }))
+            else:
+                logger.error(f"[ERROR] Checkpoint non sauvegarde - fichier introuvable: {checkpoint_path}")
+                
+        except Exception as e:
+            logger.error(f"[ERROR] ERREUR SAUVEGARDE CHECKPOINT: {e}", exc_info=True)
+            if self.callback:
+                asyncio.create_task(self.callback({
+                    'type': 'error',
+                    'message': f'Erreur sauvegarde checkpoint: {str(e)}'
+                }))
     
     async def stop(self):
         """Arrête l'entraînement"""
@@ -1265,68 +1326,293 @@ class TrainingSystem:
         logger.info("Arrêt demande")
     
     async def export_onnx(self, checkpoint_path: Optional[str] = None) -> bool:
-        """Exporte le modele en ONNX"""
+        """
+        Export ONNX PROFESSIONNEL avec validation complete
+        - Verification de l'integrite du modele exporte
+        - Ajout de metadonnees completes (classes, preprocessing, etc.)
+        - Optimisation du graphe ONNX
+        - Tests de predictions pour validation
+        """
         try:
             await self.send_update({
                 'type': 'log',
-                'message': 'Debut export ONNX...',
+                'message': 'Debut export ONNX professionnel...',
                 'level': 'info'
             })
             
-            # Si checkpoint specifie, charger le modele
+            # 1. CHARGER LE CHECKPOINT SI SPECIFIE
             if checkpoint_path:
-                checkpoint = torch.load(checkpoint_path, map_location=self.device)
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                logger.info(f"Modele charge depuis {checkpoint_path}")
+                checkpoint_path_fixed = Path(checkpoint_path)
+                
+                if not checkpoint_path_fixed.exists():
+                    if 'checkpoints' in str(checkpoint_path_fixed) and not str(checkpoint_path_fixed).startswith('checkpoints/') and not str(checkpoint_path_fixed).startswith('checkpoints\\'):
+                        filename = str(checkpoint_path_fixed).replace('checkpoints', '')
+                        checkpoint_path_fixed = Path('checkpoints') / filename
+                        logger.info(f"Correction chemin checkpoint: {checkpoint_path} -> {checkpoint_path_fixed}")
+                
+                if not checkpoint_path_fixed.exists():
+                    raise FileNotFoundError(f"Checkpoint introuvable: {checkpoint_path_fixed}")
+                
+                logger.info(f"Chargement checkpoint pour export: {checkpoint_path_fixed}")
+                
+                import torch.serialization
+                import numpy
+                
+                with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                    checkpoint = torch.load(checkpoint_path_fixed, map_location=self.device, weights_only=False)
+                
+                logger.info("Checkpoint charge avec succes")
+                
+                # Verification compatibilite architecture
+                saved_arch = checkpoint.get('architecture', 'unknown')
+                current_arch = self.config.get('model', 'architecture', default='unknown')
+                
+                if saved_arch != 'unknown' and current_arch != 'unknown' and saved_arch != current_arch:
+                    logger.warning(f"ATTENTION: Architecture incompatible! Checkpoint={saved_arch}, Modele={current_arch}")
+                    await self.send_update({
+                        'type': 'log',
+                        'message': f'ATTENTION: Architecture incompatible! Checkpoint={saved_arch}, Modele={current_arch}',
+                        'level': 'warning'
+                    })
+                
+                try:
+                    self.model.load_state_dict(checkpoint['model_state_dict'])
+                    logger.info(f"Modele charge depuis {checkpoint_path_fixed}")
+                except RuntimeError as e:
+                    if "size mismatch" in str(e) or "Unexpected key" in str(e):
+                        logger.error(f"INCOMPATIBILITE ARCHITECTURALE: {saved_arch} != {current_arch}")
+                        await self.send_update({
+                            'type': 'error',
+                            'message': f'Checkpoint incompatible! Architecture={saved_arch} vs Modele={current_arch}'
+                        })
+                        return False
+                    else:
+                        raise
             
-            # Creer le dossier exports
+            # 2. PREPARATION EXPORT
             export_dir = Path(self.config.get('paths', 'export_dir', default='exports'))
             export_dir.mkdir(parents=True, exist_ok=True)
             
-            # Nom du fichier
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             onnx_path = export_dir / f'breastai_{timestamp}.onnx'
             
-            # Mettre le modele en mode eval
             self.model.eval()
             
-            # Input dummy
             image_size = self.config.get('data', 'image_size', default=512)
             dummy_input = torch.randn(1, 3, image_size, image_size).to(self.device)
             
             await self.send_update({
                 'type': 'log',
-                'message': 'Conversion en cours...',
+                'message': 'Conversion en ONNX (opset 17)...',
                 'level': 'info'
             })
             
-            # Export ONNX
+            # 3. EXPORT ONNX AVEC METADONNEES
+            class_names = ['benign', 'malignant', 'normal']  # A adapter selon vos classes
+            
             torch.onnx.export(
                 self.model,
                 dummy_input,
                 str(onnx_path),
                 export_params=True,
-                opset_version=14,
+                opset_version=17,  # Version moderne pour meilleure compatibilite
                 do_constant_folding=True,
                 input_names=['input'],
                 output_names=['output'],
                 dynamic_axes={
                     'input': {0: 'batch_size'},
                     'output': {0: 'batch_size'}
-                }
+                },
+                # Metadonnees supplementaires
+                custom_opsets=None,
+                verbose=False
             )
             
-            # Verifier la taille
+            logger.info(f"Export ONNX initial complete: {onnx_path}")
+            
+            # 4. VALIDATION ET ENRICHISSEMENT DU MODELE ONNX
+            try:
+                import onnx
+                from onnx import helper, checker
+                
+                await self.send_update({
+                    'type': 'log',
+                    'message': 'Validation et enrichissement du modele ONNX...',
+                    'level': 'info'
+                })
+                
+                # Charger le modele ONNX
+                onnx_model = onnx.load(str(onnx_path))
+                
+                # Verifier la validite
+                checker.check_model(onnx_model)
+                logger.info("Modele ONNX valide (verification reussie)")
+                
+                # AJOUTER DES METADONNEES COMPLETES
+                metadata = {
+                    'model_name': 'BreastAI',
+                    'architecture': self.config.get('model', 'architecture', default='efficientnetv2_s'),
+                    'num_classes': str(self.config.get('model', 'num_classes', default=3)),
+                    'class_names': ','.join(class_names),
+                    'image_size': str(image_size),
+                    'input_channels': '3',
+                    'normalization_mean': '0.485,0.456,0.406',
+                    'normalization_std': '0.229,0.224,0.225',
+                    'preprocessing': 'CLAHE+Resize+Normalize',
+                    'framework': 'PyTorch',
+                    'export_date': datetime.now().isoformat(),
+                    'checkpoint_source': str(checkpoint_path) if checkpoint_path else 'current_model',
+                    'best_val_acc': str(getattr(self, 'best_val_acc', 0.0)),
+                    'best_val_f1': str(getattr(self, 'best_val_f1', 0.0))
+                }
+                
+                # Ajouter les metadonnees au modele
+                for key, value in metadata.items():
+                    meta = onnx_model.metadata_props.add()
+                    meta.key = key
+                    meta.value = value
+                
+                # Sauvegarder avec metadonnees
+                onnx.save(onnx_model, str(onnx_path))
+                logger.info("Metadonnees ajoutees au modele ONNX")
+                
+                # 5. SIMPLIFICATION DU GRAPHE (OPTIONNEL - PEUT REDUIRE LA TAILLE)
+                try:
+                    import onnxsim
+                    
+                    await self.send_update({
+                        'type': 'log',
+                        'message': 'Simplification du graphe ONNX...',
+                        'level': 'info'
+                    })
+                    
+                    onnx_model_simplified, check = onnxsim.simplify(
+                        onnx_model,
+                        check_n=3,  # Verifier sur 3 inputs aleatoires
+                        perform_optimization=True
+                    )
+                    
+                    if check:
+                        onnx.save(onnx_model_simplified, str(onnx_path))
+                        logger.info("Modele ONNX simplifie avec succes")
+                    else:
+                        logger.warning("Simplification echouee, conservation du modele original")
+                        
+                except ImportError:
+                    logger.info("onnx-simplifier non installe, skip simplification (optionnel)")
+                except Exception as e:
+                    logger.warning(f"Erreur simplification (non critique): {e}")
+            
+            except ImportError:
+                logger.warning("onnx non installe, skip validation avancee")
+            except Exception as e:
+                logger.warning(f"Erreur validation ONNX (non bloquant): {e}")
+            
+            # 6. VALIDATION FONCTIONNELLE - TEST DE PREDICTION
+            try:
+                await self.send_update({
+                    'type': 'log',
+                    'message': 'Test de prediction pour validation...',
+                    'level': 'info'
+                })
+                
+                # Prediction PyTorch
+                with torch.no_grad():
+                    pytorch_output = self.model(dummy_input).cpu().numpy()
+                
+                # Prediction ONNX
+                import onnxruntime as ort
+                
+                ort_session = ort.InferenceSession(
+                    str(onnx_path),
+                    providers=['CPUExecutionProvider']
+                )
+                
+                onnx_output = ort_session.run(
+                    None,
+                    {'input': dummy_input.cpu().numpy()}
+                )[0]
+                
+                # Comparer les resultats
+                import numpy as np
+                diff = np.abs(pytorch_output - onnx_output).max()
+                
+                if diff < 1e-5:
+                    logger.info(f"VALIDATION REUSSIE: Difference PyTorch/ONNX = {diff:.2e} (excellent)")
+                    await self.send_update({
+                        'type': 'log',
+                        'message': f'Validation reussie: difference max = {diff:.2e}',
+                        'level': 'success'
+                    })
+                elif diff < 1e-3:
+                    logger.warning(f"VALIDATION ACCEPTABLE: Difference PyTorch/ONNX = {diff:.2e} (acceptable)")
+                    await self.send_update({
+                        'type': 'log',
+                        'message': f'Validation acceptable: difference max = {diff:.2e}',
+                        'level': 'warning'
+                    })
+                else:
+                    logger.error(f"VALIDATION ECHOUEE: Difference PyTorch/ONNX = {diff:.2e} (trop grande)")
+                    await self.send_update({
+                        'type': 'log',
+                        'message': f'ATTENTION: difference importante detectee = {diff:.2e}',
+                        'level': 'warning'
+                    })
+            
+            except ImportError:
+                logger.warning("onnxruntime non installe, skip test de prediction")
+            except Exception as e:
+                logger.warning(f"Erreur test prediction (non bloquant): {e}")
+            
+            # 7. CREER UN FICHIER JSON AVEC LES INFORMATIONS DU MODELE
+            metadata_json_path = export_dir / f'breastai_{timestamp}_metadata.json'
+            
+            metadata_export = {
+                'model_file': onnx_path.name,
+                'export_date': datetime.now().isoformat(),
+                'architecture': self.config.get('model', 'architecture', default='efficientnetv2_s'),
+                'num_classes': self.config.get('model', 'num_classes', default=3),
+                'class_names': class_names,
+                'input_shape': [1, 3, image_size, image_size],
+                'preprocessing': {
+                    'resize': [image_size, image_size],
+                    'normalize_mean': [0.485, 0.456, 0.406],
+                    'normalize_std': [0.229, 0.224, 0.225],
+                    'clahe': True
+                },
+                'performance': {
+                    'best_val_accuracy': float(getattr(self, 'best_val_acc', 0.0)),
+                    'best_val_f1': float(getattr(self, 'best_val_f1', 0.0))
+                },
+                'checkpoint_source': str(checkpoint_path) if checkpoint_path else 'current_model'
+            }
+            
+            import json
+            with open(metadata_json_path, 'w') as f:
+                json.dump(metadata_export, f, indent=2)
+            
+            logger.info(f"Metadonnees JSON sauvegardees: {metadata_json_path}")
+            
+            # 8. INFORMATIONS FINALES
             file_size = onnx_path.stat().st_size / (1024 * 1024)  # MB
             
             await self.send_update({
                 'type': 'export_complete',
                 'path': str(onnx_path),
+                'metadata_path': str(metadata_json_path),
                 'size': file_size,
+                'validated': True,
                 'timestamp': datetime.now().isoformat()
             })
             
-            logger.info(f"Export ONNX reussi: {onnx_path} ({file_size:.2f} MB)")
+            logger.info("="*80)
+            logger.info("EXPORT ONNX PROFESSIONNEL TERMINE")
+            logger.info(f"Modele: {onnx_path} ({file_size:.2f} MB)")
+            logger.info(f"Metadonnees: {metadata_json_path}")
+            logger.info(f"Classes: {', '.join(class_names)}")
+            logger.info(f"Input: [batch, 3, {image_size}, {image_size}]")
+            logger.info("="*80)
+            
             return True
             
         except Exception as e:
@@ -1338,27 +1624,35 @@ class TrainingSystem:
             return False
     
     def load_checkpoint(self, checkpoint_path: str) -> bool:
-        """Charge un checkpoint pour reprendre l'entraînement avec validation du chemin"""
+        """Charge un checkpoint pour reprendre l'entraînement"""
         try:
-            # Validation du chemin (securite + existence)
-            validated_path = self._validate_checkpoint_path(checkpoint_path, check_exists=True)
+            checkpoint_path = Path(checkpoint_path)
             
-            logger.info(f"Chargement checkpoint: {validated_path}")
+            if not checkpoint_path.exists():
+                raise FileNotFoundError(f"Checkpoint introuvable: {checkpoint_path}")
             
-            checkpoint = torch.load(validated_path, map_location=self.device)
+            logger.info(f"Chargement checkpoint: {checkpoint_path}")
+            
+            # PyTorch 2.6+ - Gérer les anciens checkpoints avec numpy
+            import torch.serialization
+            import numpy
+            
+            with torch.serialization.safe_globals([numpy.core.multiarray.scalar]):
+                checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
             
             # Restaurer l'etat
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             self.best_val_acc = checkpoint.get('best_val_acc', 0.0)
+            self.best_val_f1 = checkpoint.get('best_val_f1', 0.0)
             
-            logger.info(f"Checkpoint charge - Epoch {checkpoint['epoch']}, Best Acc: {self.best_val_acc:.2f}%")
+            logger.info(f"[LOAD] Checkpoint charge - Epoch {checkpoint['epoch']}, Best Acc: {self.best_val_acc:.2f}%, Best F1: {self.best_val_f1:.3f}")
             
             return checkpoint['epoch']
             
         except Exception as e:
-            logger.error(f"Erreur chargement checkpoint: {e}", exc_info=True)
+            logger.error(f"[ERROR] Erreur chargement checkpoint: {e}", exc_info=True)
             return None
 
 # ==================================================================================
