@@ -988,7 +988,7 @@ class TrainingSystem:
             if batch_idx == 0 or batch_idx == 1:
                 await self.send_update({
                     'type': 'log',
-                    'message': f"Epoch {epoch} DÉMARRÉ - {len(self.train_loader)} batches",
+                    'message': f"Epoch {epoch} DEMARRE - {len(self.train_loader)} batches",
                     'level': 'success'
                 })
                 await self.send_update({
