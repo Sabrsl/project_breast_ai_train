@@ -982,38 +982,38 @@ class TrainingSystem:
             current_acc = 100. * correct / total if total > 0 else 0
             batch_progress = (batch_idx / len(self.train_loader)) * 100
             
-                # === LOGS OPTIMISÉS POUR TEMPS RÉEL ===
-                
-                # BATCH 0-1 : Démarrage seulement
-                if batch_idx <= 1:
-                    await self.send_update({
-                        'type': 'log',
-                        'message': f"Epoch {epoch} START - {len(self.train_loader)} batches",
-                        'level': 'success'
-                    })
-                
-                # LOGS INTERFACE : Tous les 10 batches (équilibre fréquence/performance)
-                if batch_idx > 0 and batch_idx % 10 == 0:
-                    await self.send_update({
-                        'type': 'log',
-                        'message': f"E{epoch} [{batch_idx}/{len(self.train_loader)}] L:{loss.item():.3f} A:{current_acc:.1f}%",
-                        'level': 'info'
-                    })
-                
-                # BATCH PROGRESS : TOUTES LES 5 BATCHES (dashboard temps réel)
-                if batch_idx % 5 == 0:
-                    await self.send_update({
-                        'type': 'batch_progress',
-                        'batch': batch_idx,
-                        'total_batches': len(self.train_loader),
-                        'current_loss': round(float(loss.item()), 4),
-                        'current_accuracy': round(float(current_acc), 2)
-                    })
-                
-                # LOGS FICHIER (toutes les 10 batches)
-                if batch_idx % 10 == 0:
-                    log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
-                    logger.info(log_msg)
+            # === LOGS OPTIMISÉS POUR TEMPS RÉEL ===
+            
+            # BATCH 0-1 : Démarrage seulement
+            if batch_idx <= 1:
+                await self.send_update({
+                    'type': 'log',
+                    'message': f"Epoch {epoch} START - {len(self.train_loader)} batches",
+                    'level': 'success'
+                })
+            
+            # LOGS INTERFACE : Tous les 10 batches (équilibre fréquence/performance)
+            if batch_idx > 0 and batch_idx % 10 == 0:
+                await self.send_update({
+                    'type': 'log',
+                    'message': f"E{epoch} [{batch_idx}/{len(self.train_loader)}] L:{loss.item():.3f} A:{current_acc:.1f}%",
+                    'level': 'info'
+                })
+            
+            # BATCH PROGRESS : TOUTES LES 5 BATCHES (dashboard temps réel)
+            if batch_idx % 5 == 0:
+                await self.send_update({
+                    'type': 'batch_progress',
+                    'batch': batch_idx,
+                    'total_batches': len(self.train_loader),
+                    'current_loss': round(float(loss.item()), 4),
+                    'current_accuracy': round(float(current_acc), 2)
+                })
+            
+            # LOGS FICHIER (toutes les 10 batches)
+            if batch_idx % 10 == 0:
+                log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
+                logger.info(log_msg)
         
         avg_loss = total_loss / (len(self.train_loader) - skipped_batches) if len(self.train_loader) > skipped_batches else 0
         avg_acc = 100. * correct / total if total > 0 else 0

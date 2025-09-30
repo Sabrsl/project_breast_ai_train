@@ -47,44 +47,74 @@ class BreastAIServer:
         
         logger.info(f"Serveur initialisé sur {host}:{port}")
     
+    def broadcast_sync(self, message: Dict):
+        """VERSION SYNCHRONE - Queue thread-safe pour messages temps réel"""
+        try:
+            self.message_queue.put_nowait(message)
+            logger.info(f"MESSAGE EN QUEUE: {message['type']}")  # CONFIRMATION QUEUE
+        except queue.Full:
+            logger.warning(f"QUEUE PLEINE - message {message['type']} perdu")
+    
     async def broadcast(self, message: Dict):
-        """Envoie un message à tous les clients connectés - VERSION PRODUCTION"""
-        logger.info(f"BROADCAST APPELE: {message['type']}")  # VOIR SI APPELÉ !
+        """Version ASYNC pour compatibilité - redirige vers queue"""
+        self.broadcast_sync(message)
+    
+    def _queue_worker(self):
+        """Worker thread qui traite la queue des messages"""
+        logger.info("QUEUE WORKER DEMARREE")
+        
+        while self.queue_running:
+            try:
+                # Attendre un message (bloquant avec timeout)
+                message = self.message_queue.get(timeout=1.0)
+                
+                # Traitement immédiat du message
+                asyncio.run_coroutine_threadsafe(
+                    self._send_message_direct(message), 
+                    asyncio.get_event_loop()
+                )
+                
+                self.message_queue.task_done()
+                
+            except queue.Empty:
+                continue  # Timeout normal, continuer
+            except Exception as e:
+                logger.error(f"Erreur queue worker: {e}")
+    
+    async def _send_message_direct(self, message: Dict):
+        """Envoi direct WebSocket - SANS async/await complexe"""
         if not self.clients:
-            logger.warning(f"AUCUN CLIENT CONNECTE pour {message['type']}")  # IMPORTANT !
             return
         
         try:
-            # FORMAT ULTRA-COMPACT pour éviter buffering navigateur
+            # FORMAT ULTRA-COMPACT
             if message['type'] == 'log':
-                message_simple = {'t': 'l', 'm': message['message'], 'l': message.get('level', 'info')[0]}  # t=type, m=message, l=level
+                msg = {'t': 'l', 'm': message['message'], 'l': message.get('level', 'info')[0]}
             elif message['type'] == 'batch_progress':
-                message_simple = {'t': 'bp', 'b': message['batch'], 'T': message['total_batches'], 'L': message['current_loss'], 'a': message['current_accuracy']}  # t=type, b=batch, T=total, L=loss, a=accuracy
+                msg = {'t': 'bp', 'b': message['batch'], 'T': message['total_batches'], 'L': message['current_loss'], 'a': message['current_accuracy']}
             else:
-                message_simple = message
+                msg = message
             
-            message_json = json.dumps(message_simple, ensure_ascii=True, separators=(',', ':'))  # ULTRA-COMPACT
+            message_json = json.dumps(msg, ensure_ascii=True, separators=(',', ':'))
+            
+            # ENVOI IMMÉDIAT à tous les clients
+            clients_copy = self.clients.copy()
+            disconnected = set()
+            sent_count = 0
+            
+            for client in clients_copy:
+                try:
+                    await client.send(message_json)
+                    sent_count += 1
+                except:
+                    disconnected.add(client)
+            
+            # Nettoyage
+            self.clients -= disconnected
+            logger.info(f"ENVOI DIRECT: {sent_count} clients ({message['type']})")
+            
         except Exception as e:
-            logger.error(f"Erreur sérialisation JSON: {e}")
-            return
-        
-        # Copie pour éviter les erreurs d'itération
-        clients_copy = self.clients.copy()
-        disconnected = set()
-        
-        sent_count = 0
-        for client in clients_copy:
-            try:
-                await client.send(message_json)
-                # PAS DE PING BLOQUANT - Envoi immédiat !
-                sent_count += 1
-            except Exception as e:
-                logger.warning(f"CLIENT DECONNECTE: {e}")  # VISIBLE !
-                disconnected.add(client)
-        
-        # Nettoyage et confirmation
-        self.clients -= disconnected
-        logger.info(f"MESSAGE ENVOYE + FLUSH a {sent_count} clients ({message['type']})")  # CONFIRMATION !
+            logger.error(f"Erreur envoi direct: {e}")
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""
