@@ -507,11 +507,11 @@
                     <div class="section-title">Configuration</div>
                     
                     <div class="config-group">
-                        <label class="config-label">🔥 Configuration Ultra-Performance</label>
+                        <label class="config-label">🔥 Présets de Configuration</label>
                         <select class="config-input" id="ultraConfig" onchange="applyUltraConfig()">
-                            <option value="">-- Choisir une config --</option>
+                            <option value="base" selected>📋 Config Base (Recommandée pour débuter)</option>
                             <option value="ultra_s">⚡ ULTRA-S (30 jours) - Rapide</option>
-                            <option value="ultra_m" selected>🏆 ULTRA-M (50 jours) - Optimal</option>
+                            <option value="ultra_m">🏆 ULTRA-M (50 jours) - Optimal</option>
                             <option value="custom">⚙️ Configuration personnalisée</option>
                         </select>
                     </div>
@@ -1114,7 +1114,28 @@
         function applyUltraConfig() {
             const config = document.getElementById('ultraConfig').value;
             
-            if (config === 'ultra_s') {
+            if (config === 'base') {
+                // 📋 CONFIG DE BASE : Équilibrée, idéale pour débuter (20 jours)
+                document.getElementById('modelName').value = 'efficientnetv2_s';
+                document.getElementById('epochs').value = 50;
+                document.getElementById('batchSize').value = 4;
+                document.getElementById('learningRate').value = 0.0003;
+                document.getElementById('weightDecay').value = 0.0001;
+                document.getElementById('dropout').value = 0.4;
+                document.getElementById('labelSmoothing').value = 0.1;
+                document.getElementById('optimizer').value = 'adamw';
+                document.getElementById('useCbam').value = 'true';
+                
+                // Features de base (sans surcharge)
+                document.getElementById('useFocalLoss').value = 'false';  // CrossEntropy standard
+                document.getElementById('useTTA').value = 'false';        // Pas de TTA (plus rapide)
+                document.getElementById('useEMA').value = 'false';        // Pas d'EMA
+                document.getElementById('gradientAccSteps').value = 1;    // Pas de Grad Acc
+                
+                logConsole('📋 Config BASE chargée : 20 jours, AUC ~0.960-0.965', 'success');
+                logConsole('   → Parfaite pour prototypage et premiers tests 🚀', 'info');
+                
+            } else if (config === 'ultra_s') {
                 // ⚡ ULTRA-S : 30 jours - Rapide
                 document.getElementById('modelName').value = 'efficientnetv2_s';
                 document.getElementById('epochs').value = 80;
