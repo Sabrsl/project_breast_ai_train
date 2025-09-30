@@ -966,7 +966,11 @@
         // ==================================================================================
         function updateBatchProgress(data) {
             console.log('updateBatchProgress appelé:', data); // DEBUG
-            const text = `Batch ${data.batch}/${data.total_batches} (${data.batch_progress.toFixed(1)}%) - Loss: ${data.current_loss.toFixed(4)} - Acc: ${data.current_accuracy.toFixed(2)}%`;
+            
+            // Format adapté au nouveau format simplifié
+            const progress = ((data.batch / data.total_batches) * 100);
+            const text = `Batch ${data.batch}/${data.total_batches} (${progress.toFixed(1)}%) - Loss: ${data.current_loss} - Acc: ${data.current_accuracy}%`;
+            
             const element = document.getElementById('batchProgress');
             if (element) {
                 element.textContent = text;
