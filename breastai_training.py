@@ -463,7 +463,7 @@ class TrainingSystem:
         """Envoie une mise a jour via callback"""
         if self.callback:
             try:
-                logger.info(f"DEBUG: Envoi message: {message['type']} - {message.get('message', 'N/A')[:50]}...")  # TEMP DEBUG
+                # Message préparé, envoi via callback
                 await self.callback(message)
             except Exception as e:
                 logger.error(f"Erreur callback WebSocket: {e}")
