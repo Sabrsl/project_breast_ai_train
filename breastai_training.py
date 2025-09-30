@@ -463,9 +463,13 @@ class TrainingSystem:
         """Envoie une mise a jour via callback"""
         if self.callback:
             try:
+                logger.debug(f"Envoi message: {message['type']} - {message.get('message', 'N/A')[:50]}...")  # DEBUG
                 await self.callback(message)
             except Exception as e:
-                logger.error(f"Erreur callback: {e}")
+                logger.error(f"Erreur callback WebSocket: {e}")
+                logger.error(f"Message qui a echoue: {message}")  # DEBUG
+        else:
+            logger.warning(f"Pas de callback defini pour message: {message['type']}")  # DEBUG
     
     async def setup(self) -> bool:
         """Configure tout le systeme"""
