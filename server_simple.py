@@ -9,6 +9,8 @@ import sys
 import json
 import asyncio
 import logging
+import queue
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -48,10 +50,7 @@ class BreastAIServer:
         # QUEUE THREAD-SAFE pour messages temps réel
         self.message_queue = queue.Queue()
         self.queue_running = True
-        
-        # Démarrer le worker queue immédiatement
-        self.queue_thread = threading.Thread(target=self._queue_worker, daemon=True)
-        self.queue_thread.start()
+        self.main_loop = None  # Sera défini dans start_server
         
         logger.info(f"Serveur initialisé sur {host}:{port} avec queue thread-safe")
     
@@ -76,13 +75,15 @@ class BreastAIServer:
                 # Attendre un message (bloquant avec timeout)
                 message = self.message_queue.get(timeout=1.0)
                 
-                # Traitement immédiat du message - FIX event loop
-                try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.run_coroutine_threadsafe(self._send_message_direct(message), loop)
-                except RuntimeError:
-                    # Pas d'event loop - créer une tâche pour plus tard
-                    logger.warning("Pas d'event loop actif - message différé")
+                # Traitement immédiat avec l'event loop principal
+                if self.main_loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self._send_message_direct(message), 
+                        self.main_loop
+                    )
+                    logger.info(f"MESSAGE ENVOYE VIA THREAD: {message['type']}")
+                else:
+                    logger.warning("Event loop principal pas encore disponible")
                 
                 self.message_queue.task_done()
                 
@@ -646,6 +647,15 @@ class BreastAIServer:
         logger.info("BREASTAI WEBSOCKET SERVER v3.3.0 - SIMPLIFIE")
         logger.info(f"Démarrage sur ws://{self.host}:{self.port}")
         logger.info("="*80)
+        
+        # CRITIQUE : Stocker l'event loop principal pour le worker thread
+        self.main_loop = asyncio.get_running_loop()
+        
+        # Démarrer le worker queue APRÈS avoir l'event loop
+        if not hasattr(self, 'queue_thread') or not self.queue_thread.is_alive():
+            self.queue_thread = threading.Thread(target=self._queue_worker, daemon=True)
+            self.queue_thread.start()
+            logger.info("QUEUE WORKER LANCE avec event loop principal")
         
         async with websockets.serve(self.handle_client, self.host, self.port):
             logger.info("Serveur prêt! En attente de connexions...")
