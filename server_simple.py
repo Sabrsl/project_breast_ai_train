@@ -105,9 +105,10 @@ class BreastAIServer:
             async def keep_alive():
                 try:
                     while websocket in self.clients:
-                        await asyncio.sleep(20)  # Ping optimal toutes les 20s
+                        await asyncio.sleep(2)  # PING ULTRA-FRÉQUENT - 2 SECONDES !
                         if websocket in self.clients:
                             await websocket.ping()
+                            logger.debug("FORCE-FLUSH ping envoye")
                 except:
                     pass  # Fin silencieuse
             
