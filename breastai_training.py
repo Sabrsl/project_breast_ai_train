@@ -403,7 +403,7 @@ class TrainingSystem:
             logger.info(f"💾 VRAM disponible: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
         else:
             self.device = torch.device('cpu')
-            logger.warning("⚠️ Aucun GPU détecté - Utilisation du CPU (entraînement plus lent)")
+            logger.warning("WARNING: Aucun GPU detecte - Utilisation du CPU (entrainement plus lent)")
         
         self.is_training = False
         
@@ -424,7 +424,7 @@ class TrainingSystem:
         self.model_ema = None
         
         # 🆕 Early Stopping (classe dédiée)
-        early_stop_config = config.get('training', 'early_stopping', default={})
+        early_stop_config = config.config.get('training', {}).get('early_stopping', {})
         early_stop_patience = early_stop_config.get('patience', 10) if isinstance(early_stop_config, dict) else 10
         early_stop_min_delta = early_stop_config.get('min_delta', 0.001) if isinstance(early_stop_config, dict) else 0.001
         
@@ -441,7 +441,7 @@ class TrainingSystem:
         if self.use_amp:
             from torch.cuda.amp import GradScaler
             self.scaler = GradScaler()
-            logger.info("⚡ AMP activé : entraînement 2-3x plus rapide")
+            logger.info("AMP active : entrainement 2-3x plus rapide")
         
         # Métriques
         self.best_val_acc = 0.0
@@ -524,8 +524,8 @@ class TrainingSystem:
             self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
             
             # 🆕 Loss function : Focal Loss OU CrossEntropy
-            focal_config = self.config.get('training', 'focal_loss', {})
-            use_focal = focal_config.get('enabled', False)
+            focal_config = self.config.config.get('training', {}).get('focal_loss', {})
+            use_focal = focal_config.get('enabled', False) if isinstance(focal_config, dict) else False
             
             if use_focal:
                 alpha = focal_config.get('alpha', [0.25, 0.50, 0.25])  # Priorité malignant
