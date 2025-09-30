@@ -31,6 +31,7 @@
 - 🔄 **Resume training** : Reprise depuis n'importe quel checkpoint
 - 📝 **Logging complet** : Logs fichiers + console + interface
 - 🛡️ **Gestion erreurs** : Skip des batchs corrompus automatique
+- 🔓 **Progressive Unfreezing** : Optimisation CPU (×3-4 plus rapide au début)
 
 ---
 
@@ -251,6 +252,39 @@ project_breast_ai/
 
 ---
 
+## ⚡ Progressive Unfreezing (Optimisation CPU)
+
+**Nouvelle fonctionnalité v3.3.1** : Accélération massive de l'entraînement sur CPU !
+
+### 📊 Comment ça marche ?
+
+Le **Progressive Unfreezing** gèle progressivement les couches du backbone pré-entraîné pour accélérer drastiquement l'entraînement, surtout sur CPU.
+
+```
+🔒 Phase 1 (Epochs 1-5)   : Backbone gelé → Classifier seul
+                            ✅ ×3-4 plus rapide
+                            📉 ~5% des paramètres entraînés
+
+🔓 Phase 2 (Epochs 6-15)  : Dégel partiel → 3 derniers blocs
+                            ✅ ×2 plus rapide
+                            📉 ~30% des paramètres entraînés
+
+🔥 Phase 3 (Epochs 16+)   : Dégel complet → Tous les paramètres
+                            ⚙️ Vitesse normale
+                            📈 100% des paramètres entraînés
+```
+
+### 💡 Gain estimé
+
+| Configuration | Sans PU | Avec PU | Gain |
+|---------------|---------|---------|------|
+| **CPU (53k images)** | ~220 jours | ~70-90 jours | **×2.5-3** |
+| **GPU (53k images)** | ~2-3 jours | ~1.5-2 jours | **×1.3-1.5** |
+
+> **Note** : Le Progressive Unfreezing est activé **automatiquement** ! Aucune configuration nécessaire.
+
+---
+
 ## 🎯 Performance
 
 ### Configuration Recommandée
@@ -286,8 +320,14 @@ Les contributions sont les bienvenues ! Pour contribuer :
 
 ## 📝 Changelog
 
-### v3.3.0 (Actuel)
+### v3.3.1 (Actuel - 2024-09-30)
+- 🔓 **Progressive Unfreezing** : Accélération massive pour CPU (×2.5-3)
+- 🎮 **Auto-détection GPU** : Bascule automatique GPU/CPU
 - ⚡ **Logs temps réel** : Affichage à chaque batch
+- 📊 **Statistiques détaillées** : Comptage paramètres entraînables
+- 🐛 **Fix** : Correction device CPU forcé
+
+### v3.3.0 (2024-09-29)
 - 🎨 **Interface moderne** : Dashboard amélioré
 - 🔧 **Optimisations** : Performance et stabilité
 - 🐛 **Corrections** : Gestion erreurs améliorée

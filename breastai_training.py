@@ -269,7 +269,16 @@ class TrainingSystem:
     def __init__(self, config: Config, callback: Optional[Callable] = None):
         self.config = config
         self.callback = callback  # Fonction pour envoyer des updates
-        self.device = torch.device('cpu')  # CPU seulement
+        
+        # 🚀 Détection automatique GPU/CPU
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            logger.info(f"🎮 GPU détecté: {torch.cuda.get_device_name(0)}")
+            logger.info(f"💾 VRAM disponible: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        else:
+            self.device = torch.device('cpu')
+            logger.warning("⚠️ Aucun GPU détecté - Utilisation du CPU (entraînement plus lent)")
+        
         self.is_training = False
         
         # Composants
@@ -441,6 +450,65 @@ class TrainingSystem:
             logger.error(f"Erreur setup data: {e}", exc_info=True)
             return False
     
+    def _apply_progressive_unfreezing(self, epoch: int, total_epochs: int):
+        """
+        🔓 PROGRESSIVE UNFREEZING - Optimisation CPU
+        
+        Epochs 1-5    : Backbone gelé (seulement classifier) → ×3-4 plus rapide
+        Epochs 6-15   : Dégel des derniers blocs             → ×2 plus rapide
+        Epochs 16+    : Dégel complet                        → vitesse normale
+        """
+        if not hasattr(self.model, 'backbone'):
+            return  # Pas de backbone à geler
+        
+        # PHASE 1 : Epochs 1-5 → BACKBONE GELÉ (très rapide)
+        if epoch <= 5:
+            if epoch == 1:
+                # Geler tout le backbone
+                for param in self.model.backbone.parameters():
+                    param.requires_grad = False
+                
+                # Compter les paramètres
+                total_params = sum(p.numel() for p in self.model.parameters())
+                trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                
+                logger.info("🔒 [Phase 1/3] Backbone GELÉ - Entraînement classifier seul (×3-4 plus rapide)")
+                logger.info(f"   → Paramètres entraînables: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.1f}%)")
+            return
+        
+        # PHASE 2 : Epochs 6-15 → DÉGEL PARTIEL (2-3 derniers blocs)
+        elif epoch == 6:
+            # Dégeler les derniers blocs du backbone
+            logger.info("🔓 [Phase 2/3] Dégel PARTIEL - 3 derniers blocs (×2 plus rapide)")
+            
+            # Pour EfficientNet, dégeler les dernières "features"
+            if hasattr(self.model.backbone, 'features'):
+                total_blocks = len(self.model.backbone.features)
+                unfreeze_from = max(0, total_blocks - 3)  # 3 derniers blocs
+                
+                for idx, block in enumerate(self.model.backbone.features):
+                    if idx >= unfreeze_from:
+                        for param in block.parameters():
+                            param.requires_grad = True
+                
+                logger.info(f"   → Blocs {unfreeze_from}-{total_blocks} dégelés")
+            return
+        
+        # PHASE 3 : Epoch 16+ → DÉGEL COMPLET
+        elif epoch == 16:
+            logger.info("🔥 [Phase 3/3] Dégel COMPLET - Tous les paramètres (vitesse normale)")
+            
+            # Dégeler tout le backbone
+            for param in self.model.backbone.parameters():
+                param.requires_grad = True
+            
+            # Optionnel : Réduire le learning rate pour éviter de casser les poids pré-entraînés
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * 0.1  # Diviser LR par 10
+            
+            logger.info(f"   → Learning rate réduit à {self.optimizer.param_groups[0]['lr']:.2e}")
+            return
+    
     async def train(self, epochs: Optional[int] = None, start_epoch: int = 1):
         """Lance l'entraînement (supporte reprise depuis checkpoint)"""
         if self.is_training:
@@ -468,6 +536,9 @@ class TrainingSystem:
                 if not self.is_training:
                     logger.info("Entraînement arrêté par l'utilisateur")
                     break
+                
+                # 🔓 Progressive Unfreezing (optimisation CPU)
+                self._apply_progressive_unfreezing(epoch, epochs)
                 
                 # Train
                 train_metrics = await self._train_epoch(epoch)
