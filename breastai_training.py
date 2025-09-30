@@ -984,8 +984,8 @@ class TrainingSystem:
             
             # === SYSTÈME MESSAGES PRODUCTION - SIMPLE ET EFFICACE ===
             
-            # DÉMARRAGE IMMÉDIAT (batch 0)
-            if batch_idx == 0:
+            # DÉMARRAGE + CONFIRMATION (batch 0 et 1)
+            if batch_idx == 0 or batch_idx == 1:
                 await self.send_update({
                     'type': 'log',
                     'message': f"Epoch {epoch} DÉMARRÉ - {len(self.train_loader)} batches",
@@ -1004,8 +1004,8 @@ class TrainingSystem:
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
                 logger.info(log_msg)
             
-            # MESSAGES INTERFACE (tous les 12 batches - PRODUCTION)
-            if batch_idx > 0 and batch_idx % 12 == 0:
+            # MESSAGES INTERFACE (tous les 5 batches - FEEDBACK RAPIDE)
+            if batch_idx > 0 and batch_idx % 5 == 0:
                 # Log + Dashboard ensemble
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
                 await self.send_update({
