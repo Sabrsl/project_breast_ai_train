@@ -26,7 +26,8 @@ import numpy as np
 from PIL import Image
 from sklearn.metrics import (
     accuracy_score, precision_recall_fscore_support,
-    confusion_matrix, cohen_kappa_score, roc_auc_score
+    confusion_matrix, cohen_kappa_score, roc_auc_score,
+    f1_score, precision_score, recall_score  # Pour validation complète
 )
 
 # Configuration de base
@@ -812,11 +813,14 @@ class TrainingSystem:
                     self._save_checkpoint(epoch, 'best.pth')
                     logger.info(f"✅ Nouveau meilleur modèle : F1={current_f1:.4f}, Acc={current_acc:.2f}%")
                 
-                # Worst model (pour analyse et comparaison)
+                # Worst model (sauvegardé périodiquement pour analyse, pas à chaque dégradation)
+                # Sauvegarder seulement tous les 10 epochs ou à la fin
                 if current_acc < self.worst_val_acc:
                     self.worst_val_acc = current_acc
-                    self._save_checkpoint(epoch, 'worst.pth')
-                    logger.info(f"📉 Pire modèle sauvegardé (analyse) : Acc={current_acc:.2f}%")
+                    # Sauvegarder uniquement tous les 10 epochs ou à la fin
+                    if epoch % 10 == 0 or epoch == epochs:
+                        self._save_checkpoint(epoch, 'worst.pth')
+                        logger.info(f"📉 Pire modèle sauvegardé (analyse) : Acc={current_acc:.2f}% à epoch {epoch}")
                 
                 # 🛑 Early Stopping avec classe dédiée
                 if self.early_stopping_enabled and self.early_stopping(current_f1):
@@ -1158,38 +1162,57 @@ class TrainingSystem:
             'recall_weighted': recall_weighted
         }
     
-    def _validate_checkpoint_path(self, path: str) -> Path:
+    def _validate_checkpoint_path(self, checkpoint_path: str, check_exists: bool = False) -> Path:
         """
-        Valide le chemin d'un checkpoint pour éviter les attaques de type path traversal
+        Valide et sécurise le chemin d'un checkpoint
         
         Args:
-            path: Chemin du checkpoint à valider
+            checkpoint_path: Chemin du checkpoint à valider
+            check_exists: Si True, vérifie que le fichier existe
             
         Returns:
             Path validé et résolu
             
         Raises:
             ValueError: Si le chemin est invalide ou en dehors du dossier checkpoints
+            FileNotFoundError: Si check_exists=True et le fichier n'existe pas
         """
-        checkpoint_dir = Path('checkpoints').resolve()
-        checkpoint_path = (checkpoint_dir / path).resolve()
-        
-        # Vérifier que le chemin est bien dans le dossier checkpoints
         try:
-            checkpoint_path.relative_to(checkpoint_dir)
-        except ValueError:
-            raise ValueError(f"⚠️ Chemin checkpoint invalide (hors de 'checkpoints/') : {path}")
+            path = Path(checkpoint_path).resolve()
+            checkpoint_dir = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints')).resolve()
+            
+            # 🛡️ Vérifier que le chemin est dans checkpoint_dir (protection path traversal)
+            try:
+                path.relative_to(checkpoint_dir)
+            except ValueError:
+                raise ValueError(f"⚠️ Chemin checkpoint invalide (hors de '{checkpoint_dir}'): {checkpoint_path}")
+            
+            # 🛡️ Vérifier que le fichier existe (pour load_checkpoint)
+            if check_exists and not path.exists():
+                raise FileNotFoundError(f"❌ Checkpoint introuvable: {path}")
+            
+            # 🛡️ Vérifier l'extension .pth
+            if path.suffix != '.pth':
+                raise ValueError(f"⚠️ Format checkpoint invalide (attendu .pth, reçu {path.suffix})")
+            
+            return path
         
-        return checkpoint_path
+        except (ValueError, FileNotFoundError) as e:
+            logger.error(f"❌ Validation checkpoint échouée: {e}")
+            raise
+        
+        except Exception as e:
+            logger.error(f"❌ Erreur inattendue lors de la validation: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Erreur validation checkpoint: {checkpoint_path}") from e
     
     def _save_checkpoint(self, epoch: int, filename: str):
         """Sauvegarde un checkpoint avec métadonnées complètes et validation du chemin"""
         checkpoint_dir = Path(self.config.get('paths', 'checkpoint_dir', default='checkpoints'))
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
-        # 🛡️ Validation du chemin (sécurité)
+        # 🛡️ Validation du chemin (sécurité, pas besoin de vérifier existence pour save)
         try:
-            checkpoint_path = self._validate_checkpoint_path(filename)
+            checkpoint_path = self._validate_checkpoint_path(filename, check_exists=False)
         except ValueError as e:
             logger.error(f"❌ Erreur validation chemin : {e}")
             return
@@ -1297,8 +1320,8 @@ class TrainingSystem:
     def load_checkpoint(self, checkpoint_path: str) -> bool:
         """Charge un checkpoint pour reprendre l'entraînement avec validation du chemin"""
         try:
-            # 🛡️ Validation du chemin (sécurité)
-            validated_path = self._validate_checkpoint_path(checkpoint_path)
+            # 🛡️ Validation du chemin (sécurité + existence)
+            validated_path = self._validate_checkpoint_path(checkpoint_path, check_exists=True)
             
             logger.info(f"Chargement checkpoint: {validated_path}")
             
