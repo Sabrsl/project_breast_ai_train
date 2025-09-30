@@ -75,13 +75,18 @@ class BreastAIServer:
                 # Attendre un message (bloquant avec timeout)
                 message = self.message_queue.get(timeout=1.0)
                 
-                # Traitement immédiat avec l'event loop principal
+                # Traitement immédiat avec l'event loop principal - ATTENDRE LE RÉSULTAT !
                 if self.main_loop:
-                    asyncio.run_coroutine_threadsafe(
+                    future = asyncio.run_coroutine_threadsafe(
                         self._send_message_direct(message), 
                         self.main_loop
                     )
-                    logger.info(f"MESSAGE ENVOYE VIA THREAD: {message['type']}")
+                    # ATTENDRE que la coroutine soit VRAIMENT exécutée !
+                    try:
+                        future.result(timeout=2.0)  # Attendre max 2 secondes
+                        logger.info(f"MESSAGE ENVOYE ET EXECUTE VIA THREAD: {message['type']}")
+                    except Exception as e:
+                        logger.error(f"Erreur execution coroutine: {e}")
                 else:
                     logger.warning("Event loop principal pas encore disponible")
                 
