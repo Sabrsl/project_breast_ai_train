@@ -49,21 +49,32 @@ class BreastAIServer:
     
     async def broadcast(self, message: Dict):
         """Envoie un message à tous les clients connectés"""
+        logger.info(f"DEBUG: BROADCAST appelé pour: {message['type']}")  # DEBUG
+        
         if not self.clients:
+            logger.warning(f"DEBUG: Pas de clients connectés pour {message['type']}")  # DEBUG
             return
         
-        message_json = json.dumps(message, ensure_ascii=False)
+        try:
+            message_json = json.dumps(message, ensure_ascii=False)
+            logger.info(f"DEBUG: JSON créé pour {len(self.clients)} clients")  # DEBUG
+        except Exception as e:
+            logger.error(f"DEBUG: Erreur JSON: {e} - Message: {message}")  # DEBUG
+            return
+        
         disconnected = set()
         
         for client in self.clients:
             try:
                 await client.send(message_json)
+                logger.debug(f"DEBUG: Message envoyé à client {client.remote_address}")  # DEBUG
             except Exception as e:
                 logger.warning(f"Erreur envoi client: {e}")
                 disconnected.add(client)
         
         # Nettoyer les clients déconnectés
         self.clients -= disconnected
+        logger.info(f"DEBUG: BROADCAST terminé pour {message['type']}")  # DEBUG
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""
