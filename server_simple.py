@@ -64,7 +64,10 @@ class BreastAIServer:
         
         disconnected = set()
         
-        for client in self.clients:
+        # COPIER le set pour éviter "Set changed size during iteration"
+        clients_copy = self.clients.copy()
+        
+        for client in clients_copy:
             try:
                 await client.send(message_json)
                 await asyncio.sleep(0.001)  # MICRO-PAUSE pour forcer le flush
@@ -90,6 +93,18 @@ class BreastAIServer:
                 'message': 'Connecté au serveur BreastAI',
                 'timestamp': datetime.now().isoformat()
             }))
+            
+            # PING périodique pour maintenir la connexion
+            async def keep_alive():
+                try:
+                    while websocket in self.clients:
+                        await asyncio.sleep(30)  # Ping toutes les 30s
+                        if websocket in self.clients:
+                            await websocket.ping()
+                except Exception as e:
+                    logger.debug(f"Keep-alive stopped: {e}")
+            
+            asyncio.create_task(keep_alive())
             
             # Boucle de réception
             async for message in websocket:
