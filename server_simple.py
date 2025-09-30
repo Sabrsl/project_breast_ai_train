@@ -47,59 +47,12 @@ class BreastAIServer:
         self.training_task: Optional[asyncio.Task] = None
         self.is_training = False
         
-        # QUEUE THREAD-SAFE pour messages temps réel
-        self.message_queue = queue.Queue()
-        self.queue_running = True
-        self.main_loop = None  # Sera défini dans start_server
+        # SYSTÈME SIMPLE - PAS DE QUEUE THREAD
         
-        logger.info(f"Serveur initialisé sur {host}:{port} avec queue thread-safe")
-    
-    def broadcast_sync(self, message: Dict):
-        """VERSION SYNCHRONE - Queue thread-safe pour messages temps réel"""
-        try:
-            self.message_queue.put_nowait(message)
-            logger.info(f"MESSAGE EN QUEUE: {message['type']}")  # CONFIRMATION QUEUE
-        except queue.Full:
-            logger.warning(f"QUEUE PLEINE - message {message['type']} perdu")
+        logger.info(f"Serveur initialisé sur {host}:{port} - SYSTÈME SIMPLE")
     
     async def broadcast(self, message: Dict):
-        """Version ASYNC pour compatibilité - redirige vers queue"""
-        self.broadcast_sync(message)
-    
-    def _queue_worker(self):
-        """Worker thread qui traite la queue des messages"""
-        logger.info("QUEUE WORKER DEMARREE")
-        
-        while self.queue_running:
-            try:
-                # Attendre un message (bloquant avec timeout)
-                message = self.message_queue.get(timeout=1.0)
-                
-                # Traitement immédiat avec l'event loop principal - ATTENDRE LE RÉSULTAT !
-                if self.main_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._send_message_direct(message), 
-                        self.main_loop
-                    )
-                    # ATTENDRE que la coroutine soit VRAIMENT exécutée !
-                    try:
-                        future.result(timeout=1.0)  # Timeout court pour éviter blocage
-                        # Success silencieux - pas de log
-                    except Exception:
-                        # Erreur silencieuse - continuer sans bloquer
-                        pass
-                else:
-                    logger.warning("Event loop principal pas encore disponible")
-                
-                self.message_queue.task_done()
-                
-            except queue.Empty:
-                continue  # Timeout normal, continuer
-            except Exception as e:
-                logger.error(f"Erreur queue worker: {e}")
-    
-    async def _send_message_direct(self, message: Dict):
-        """Envoi direct WebSocket - VERSION PROPRE"""
+        """BROADCAST SIMPLE ET DIRECT - SANS COROUTINE"""
         if not self.clients:
             return
         
@@ -114,24 +67,21 @@ class BreastAIServer:
             
             message_json = json.dumps(msg, ensure_ascii=True, separators=(',', ':'))
             
-            # ENVOI IMMÉDIAT à tous les clients
+            # ENVOI DIRECT - SIMPLE
             clients_copy = self.clients.copy()
             disconnected = set()
-            sent_count = 0
             
             for client in clients_copy:
                 try:
                     await client.send(message_json)
-                    sent_count += 1
                 except:
                     disconnected.add(client)
             
             # Nettoyage
             self.clients -= disconnected
-            # Success silencieux
             
         except Exception as e:
-            logger.error(f"Erreur envoi direct: {e}")
+            logger.error(f"Erreur broadcast: {e}")
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""
@@ -654,14 +604,7 @@ class BreastAIServer:
         logger.info(f"Démarrage sur ws://{self.host}:{self.port}")
         logger.info("="*80)
         
-        # CRITIQUE : Stocker l'event loop principal pour le worker thread
-        self.main_loop = asyncio.get_running_loop()
-        
-        # Démarrer le worker queue APRÈS avoir l'event loop
-        if not hasattr(self, 'queue_thread') or not self.queue_thread.is_alive():
-            self.queue_thread = threading.Thread(target=self._queue_worker, daemon=True)
-            self.queue_thread.start()
-            logger.info("QUEUE WORKER LANCE avec event loop principal")
+        # SYSTÈME SIMPLE - PAS DE WORKER THREAD
         
         async with websockets.serve(self.handle_client, self.host, self.port):
             logger.info("Serveur prêt! En attente de connexions...")
