@@ -778,6 +778,7 @@
         // ==================================================================================
         function handleServerMessage(data) {
             const type = data.type;
+            console.log('Message reçu:', type, data); // DEBUG: voir tous les messages
 
             switch(type) {
                 case 'connection_established':
@@ -964,8 +965,15 @@
         // UI UPDATES
         // ==================================================================================
         function updateBatchProgress(data) {
+            console.log('updateBatchProgress appelé:', data); // DEBUG
             const text = `Batch ${data.batch}/${data.total_batches} (${data.batch_progress.toFixed(1)}%) - Loss: ${data.current_loss.toFixed(4)} - Acc: ${data.current_accuracy.toFixed(2)}%`;
-            document.getElementById('batchProgress').textContent = text;
+            const element = document.getElementById('batchProgress');
+            if (element) {
+                element.textContent = text;
+                console.log('batchProgress mis à jour:', text); // DEBUG
+            } else {
+                console.error('Élément batchProgress introuvable!'); // DEBUG
+            }
         }
 
         function updateTrainingMetrics(data) {
