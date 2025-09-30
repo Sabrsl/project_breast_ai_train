@@ -70,7 +70,7 @@ class BreastAIServer:
         for client in clients_copy:
             try:
                 await client.send(message_json)
-                await asyncio.sleep(0.001)  # MICRO-PAUSE pour forcer le flush
+                # Pas de pause - elle cause les timeouts !
                 logger.debug(f"DEBUG: Message envoyé et flushé à client {client.remote_address}")  # DEBUG
             except Exception as e:
                 logger.warning(f"Erreur envoi client: {e}")
@@ -98,7 +98,7 @@ class BreastAIServer:
             async def keep_alive():
                 try:
                     while websocket in self.clients:
-                        await asyncio.sleep(30)  # Ping toutes les 30s
+                        await asyncio.sleep(15)  # Ping plus fréquent - toutes les 15s
                         if websocket in self.clients:
                             await websocket.ping()
                 except Exception as e:
