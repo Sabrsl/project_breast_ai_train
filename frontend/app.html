@@ -751,11 +751,25 @@
             };
 
             websocket.onmessage = (event) => {
+                messageCount++;
+                
+                // DIAGNOSTIC BRUTAL - FORCER AFFICHAGE CONSOLE
+                console.log(`🔥🔥🔥 MESSAGE #${messageCount} REÇU:`, event.data);
+                
+                // FORCER AFFICHAGE IMMÉDIAT DANS L'INTERFACE
+                logConsole(`🔥 MSG #${messageCount}: ${event.data.substring(0, 50)}...`, 'warning');
+                
+                // FORCER FLUSH DOM IMMÉDIAT
+                document.body.style.display = 'none';
+                document.body.offsetHeight; // Force reflow
+                document.body.style.display = '';
+                
                 try {
                     const data = JSON.parse(event.data);
                     handleServerMessage(data);
                 } catch (e) {
-                    console.error('Erreur parsing message:', e);
+                    console.error('🚨 ERREUR PARSING:', e, 'Data:', event.data);
+                    logConsole(`🚨 ERREUR JSON: ${e.message}`, 'error');
                 }
             };
         }
