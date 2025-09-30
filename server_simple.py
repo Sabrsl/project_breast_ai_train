@@ -55,15 +55,15 @@ class BreastAIServer:
             return
         
         try:
-            # FORMAT MINIMAL pour éviter buffering navigateur
+            # FORMAT ULTRA-COMPACT pour éviter buffering navigateur
             if message['type'] == 'log':
-                message_simple = {'type': 'log', 'message': message['message'], 'level': message.get('level', 'info')}
+                message_simple = {'t': 'l', 'm': message['message'], 'l': message.get('level', 'info')[0]}  # t=type, m=message, l=level
             elif message['type'] == 'batch_progress':
-                message_simple = {'type': 'batch_progress', 'batch': message['batch'], 'total': message['total_batches'], 'loss': message['current_loss'], 'acc': message['current_accuracy']}
+                message_simple = {'t': 'bp', 'b': message['batch'], 'T': message['total_batches'], 'L': message['current_loss'], 'a': message['current_accuracy']}  # t=type, b=batch, T=total, L=loss, a=accuracy
             else:
                 message_simple = message
             
-            message_json = json.dumps(message_simple, ensure_ascii=True, separators=(',', ':'))  # COMPACT + ASCII
+            message_json = json.dumps(message_simple, ensure_ascii=True, separators=(',', ':'))  # ULTRA-COMPACT
         except Exception as e:
             logger.error(f"Erreur sérialisation JSON: {e}")
             return
@@ -76,8 +76,7 @@ class BreastAIServer:
         for client in clients_copy:
             try:
                 await client.send(message_json)
-                # FORCE FLUSH IMMÉDIAT avec PING
-                await client.ping()
+                # PAS DE PING BLOQUANT - Envoi immédiat !
                 sent_count += 1
             except Exception as e:
                 logger.warning(f"CLIENT DECONNECTE: {e}")  # VISIBLE !

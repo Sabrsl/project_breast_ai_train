@@ -777,23 +777,38 @@
         // MESSAGE HANDLERS
         // ==================================================================================
         function handleServerMessage(data) {
-            const type = data.type;
-            console.log('🔥 MESSAGE REÇU IMMÉDIAT:', type, data); // DEBUG VISIBLE
+            // DÉCODAGE FORMAT COMPACT
+            let type = data.t || data.type;
             
-            // TRAITEMENT IMMÉDIAT + FORCE REFRESH
-            if (type === 'log') {
-                logConsole(data.message, data.level || 'info');
-                console.log('✅ LOG AFFICHÉ IMMÉDIAT:', data.message);
-                // FORCE SCROLL + REFRESH
-                setTimeout(() => {
-                    const console = document.getElementById('console');
-                    if (console) console.scrollTop = console.scrollHeight;
-                }, 10);
+            // TRAITEMENT IMMÉDIAT DANS L'EVENT LOOP (pas de setTimeout)
+            if (type === 'log' || type === 'l') {
+                const message = data.m || data.message;
+                const level = data.l === 'i' ? 'info' : (data.l === 's' ? 'success' : (data.l === 'w' ? 'warning' : (data.l === 'e' ? 'error' : (data.level || 'info'))));
+                logConsole(message, level);
+                
+                // SCROLL IMMÉDIAT (pas de setTimeout)
+                const console = document.getElementById('console');
+                if (console) console.scrollTop = console.scrollHeight;
             }
             
-            if (type === 'batch_progress') {
-                updateBatchProgress(data);
-                console.log('✅ DASHBOARD MIS À JOUR IMMÉDIAT:', data.batch || data.batch);
+            if (type === 'bp' || type === 'batch_progress') {
+                const batch = data.b || data.batch;
+                const total = data.T || data.total || data.total_batches;
+                const loss = data.L || data.loss || data.current_loss;
+                const acc = data.a || data.acc || data.current_accuracy;
+                
+                // UPDATE DOM DIRECT (pas de requestAnimationFrame qui peut bufferiser)
+                const progress = ((batch / total) * 100).toFixed(1);
+                const text = `Batch ${batch}/${total} (${progress}%) - Loss: ${loss} - Acc: ${acc}%`;
+                
+                const element = document.getElementById('batchProgress');
+                if (element) element.textContent = text;
+                
+                const progressFill = document.getElementById('progressFill');
+                if (progressFill) {
+                    progressFill.style.width = progress + '%';
+                    progressFill.textContent = progress + '%';
+                }
             }
 
             switch(type) {
