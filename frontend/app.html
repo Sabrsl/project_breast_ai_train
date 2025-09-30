@@ -995,34 +995,6 @@
         // ==================================================================================
         // UI UPDATES
         // ==================================================================================
-        function updateBatchProgress(data) {
-            console.log('updateBatchProgress appelé:', data); // DEBUG
-            
-            // Format adapté au nouveau format simplifié
-            const progress = ((data.batch / (data.total || data.total_batches)) * 100);
-            const text = `Batch ${data.batch}/${data.total || data.total_batches} (${progress.toFixed(1)}%) - Loss: ${data.loss || data.current_loss} - Acc: ${data.acc || data.current_accuracy}%`;
-            
-            // FORCE IMMEDIATE UPDATE
-            requestAnimationFrame(() => {
-                // Mettre à jour le texte de progression batch
-                const element = document.getElementById('batchProgress');
-                if (element) {
-                    element.textContent = text;
-                    element.style.display = 'block';  // FORCE VISIBLE
-                    console.log('batchProgress mis à jour IMMÉDIAT:', text);
-                }
-                
-                // Mettre à jour la barre de progression
-                const progressFill = document.getElementById('progressFill');
-                if (progressFill) {
-                    const batchProgress = progress.toFixed(1);
-                    progressFill.style.width = batchProgress + '%';
-                    progressFill.textContent = batchProgress + '%';
-                    progressFill.style.transition = 'width 0.3s ease';  // ANIMATION FLUIDE
-                    console.log('Barre FORCÉE:', batchProgress + '%');
-                }
-            });
-        }
 
         function updateTrainingMetrics(data) {
             currentEpoch = data.epoch;
