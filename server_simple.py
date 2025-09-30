@@ -76,6 +76,8 @@ class BreastAIServer:
         for client in clients_copy:
             try:
                 await client.send(message_json)
+                # FORCE FLUSH IMMÉDIAT avec PING
+                await client.ping()
                 sent_count += 1
             except Exception as e:
                 logger.warning(f"CLIENT DECONNECTE: {e}")  # VISIBLE !
@@ -83,7 +85,7 @@ class BreastAIServer:
         
         # Nettoyage et confirmation
         self.clients -= disconnected
-        logger.info(f"MESSAGE ENVOYE a {sent_count} clients ({message['type']})")  # CONFIRMATION !
+        logger.info(f"MESSAGE ENVOYE + FLUSH a {sent_count} clients ({message['type']})")  # CONFIRMATION !
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""

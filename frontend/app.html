@@ -778,17 +778,22 @@
         // ==================================================================================
         function handleServerMessage(data) {
             const type = data.type;
-            console.log('🔥 MESSAGE REÇU:', type, data); // DEBUG VISIBLE
+            console.log('🔥 MESSAGE REÇU IMMÉDIAT:', type, data); // DEBUG VISIBLE
             
-            // FORCER L'AFFICHAGE IMMÉDIAT
+            // TRAITEMENT IMMÉDIAT + FORCE REFRESH
             if (type === 'log') {
                 logConsole(data.message, data.level || 'info');
-                console.log('✅ LOG AFFICHÉ:', data.message);
+                console.log('✅ LOG AFFICHÉ IMMÉDIAT:', data.message);
+                // FORCE SCROLL + REFRESH
+                setTimeout(() => {
+                    const console = document.getElementById('console');
+                    if (console) console.scrollTop = console.scrollHeight;
+                }, 10);
             }
             
             if (type === 'batch_progress') {
                 updateBatchProgress(data);
-                console.log('✅ DASHBOARD MIS À JOUR:', data.batch);
+                console.log('✅ DASHBOARD MIS À JOUR IMMÉDIAT:', data.batch || data.batch);
             }
 
             switch(type) {
