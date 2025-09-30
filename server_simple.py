@@ -194,9 +194,11 @@ class BreastAIServer:
     async def _run_training(self, epochs: int):
         """Exécute l'entraînement"""
         try:
+            logger.info(f"=== DEBUT TRAINING {epochs} epochs ===")  # DEBUG
             await self.training_system.train(epochs)
+            logger.info("=== FIN TRAINING NORMALE ===")  # DEBUG
         except Exception as e:
-            logger.error(f"Erreur durant l'entraînement: {e}", exc_info=True)
+            logger.error(f"CRASH SERVEUR - TRAINING: {type(e).__name__}: {e}", exc_info=True)
             await self.broadcast({
                 'type': 'error',
                 'message': f'Erreur entraînement: {str(e)}'
