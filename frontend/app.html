@@ -572,6 +572,36 @@
                             <option value="false">Désactivé</option>
                         </select>
                     </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">🔥 Focal Loss</label>
+                        <select class="config-input" id="useFocalLoss">
+                            <option value="true">Activé (Priorité Malignant)</option>
+                            <option value="false">Désactivé (CrossEntropy)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">🔄 Test-Time Augmentation (TTA)</label>
+                        <select class="config-input" id="useTTA">
+                            <option value="true">Activé (6x aug, +1-1.5% AUC)</option>
+                            <option value="false">Désactivé</option>
+                        </select>
+                    </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">✅ EMA (Exponential Moving Average)</label>
+                        <select class="config-input" id="useEMA">
+                            <option value="true">Activé (Stabilité++)</option>
+                            <option value="false">Désactivé</option>
+                        </select>
+                    </div>
+                    
+                    <div class="config-group">
+                        <label class="config-label">🔄 Gradient Accumulation Steps</label>
+                        <input type="number" class="config-input" id="gradientAccSteps" value="4" min="1" max="16">
+                        <small style="color: #64748b; font-size: 11px;">Batch effectif = Batch × Steps</small>
+                    </div>
                 </div>
 
                 <!-- TOOLS -->
@@ -842,11 +872,25 @@
                     use_cbam: document.getElementById('useCbam').value === 'true',
                     scheduler: 'cosine',
                     
+                    // 🆕 Features avancées (contrôlables depuis interface)
+                    use_focal_loss: document.getElementById('useFocalLoss').value === 'true',
+                    focal_loss_alpha: [0.25, 0.50, 0.25],  // Priorité malignant
+                    focal_loss_gamma: 2.5,
+                    use_tta: document.getElementById('useTTA').value === 'true',
+                    use_ema: document.getElementById('useEMA').value === 'true',
+                    ema_decay: 0.9998,
+                    gradient_accumulation_steps: parseInt(document.getElementById('gradientAccSteps').value),
+                    
+                    // Progressive Unfreezing (automatique selon epochs)
+                    progressive_unfreezing_phase1: 8,
+                    progressive_unfreezing_phase2: 20,
+                    progressive_unfreezing_phase3: 40,
+                    
                     // Classes & Workers
                     num_classes: 3,
                     num_workers: 2,
                     
-                    // Training params (overridden by fields above)
+                    // Training params
                     gradient_clip: 1.0,
                     
                     // Data augmentation
@@ -1071,7 +1115,7 @@
             const config = document.getElementById('ultraConfig').value;
             
             if (config === 'ultra_s') {
-                // ⚡ ULTRA-S : 30 jours
+                // ⚡ ULTRA-S : 30 jours - Rapide
                 document.getElementById('modelName').value = 'efficientnetv2_s';
                 document.getElementById('epochs').value = 80;
                 document.getElementById('batchSize').value = 4;
@@ -1082,10 +1126,17 @@
                 document.getElementById('optimizer').value = 'adamw';
                 document.getElementById('useCbam').value = 'true';
                 
+                // 🆕 Features avancées ULTRA-S
+                document.getElementById('useFocalLoss').value = 'true';
+                document.getElementById('useTTA').value = 'true';
+                document.getElementById('useEMA').value = 'true';
+                document.getElementById('gradientAccSteps').value = 4;
+                
                 logConsole('⚡ Config ULTRA-S chargée : 30 jours, AUC ~0.970-0.973', 'success');
+                logConsole('   → Focal Loss ✅ | TTA ✅ | EMA ✅ | Grad Acc ×4 ✅', 'info');
                 
             } else if (config === 'ultra_m') {
-                // 🏆 ULTRA-M : 50 jours
+                // 🏆 ULTRA-M : 50 jours - Optimal
                 document.getElementById('modelName').value = 'efficientnetv2_m';
                 document.getElementById('epochs').value = 80;
                 document.getElementById('batchSize').value = 4;
@@ -1096,15 +1147,23 @@
                 document.getElementById('optimizer').value = 'adamw';
                 document.getElementById('useCbam').value = 'true';
                 
+                // 🆕 Features avancées ULTRA-M
+                document.getElementById('useFocalLoss').value = 'true';
+                document.getElementById('useTTA').value = 'true';
+                document.getElementById('useEMA').value = 'true';
+                document.getElementById('gradientAccSteps').value = 4;
+                
                 logConsole('🏆 Config ULTRA-M chargée : 50 jours, AUC ~0.975-0.978', 'success');
+                logConsole('   → Focal Loss ✅ | TTA ✅ | EMA ✅ | Grad Acc ×4 ✅', 'info');
                 
             } else if (config === 'custom') {
-                logConsole('⚙️ Mode personnalisé : Ajustez manuellement les paramètres', 'info');
+                logConsole('⚙️ Mode personnalisé : Configurez chaque paramètre individuellement', 'info');
             }
         }
         
-        // Appliquer config par défaut au chargement
+        // 🔥 Appliquer config par défaut au chargement (ULTRA-S par défaut)
         window.addEventListener('load', () => {
+            console.log('🚀 Initialisation interface : chargement config ULTRA-S par défaut...');
             applyUltraConfig();
         });
         

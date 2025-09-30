@@ -509,13 +509,6 @@ class BreastAIServer:
                 'data_dir': interface_config.get('data_path', 'data'),
                 'checkpoint_dir': interface_config.get('checkpoint_path', 'checkpoints')
             },
-            'model': {
-                'architecture': interface_config.get('model_name', 'efficientnetv2_s'),
-                'num_classes': interface_config.get('num_classes', 3),
-                'use_cbam': interface_config.get('use_cbam', True),
-                'dropout_rate': interface_config.get('dropout_rate', 0.4),
-                'pretrained': interface_config.get('pretrained', True)
-            },
             'training': {
                 'epochs': interface_config.get('epochs', 50),
                 'learning_rate': interface_config.get('learning_rate', 0.0003),
@@ -523,18 +516,42 @@ class BreastAIServer:
                 'optimizer': interface_config.get('optimizer', 'adamw'),
                 'scheduler': interface_config.get('scheduler', 'cosine'),
                 'label_smoothing': interface_config.get('label_smoothing', 0.1),
-                'gradient_clip': interface_config.get('gradient_clip', 1.0)
+                'gradient_clip': interface_config.get('gradient_clip', 1.0),
+                # 🆕 Features avancées depuis interface
+                'use_ema': interface_config.get('use_ema', False),
+                'ema_decay': interface_config.get('ema_decay', 0.9998),
+                'focal_loss': {
+                    'enabled': interface_config.get('use_focal_loss', False),
+                    'alpha': interface_config.get('focal_loss_alpha', [0.25, 0.50, 0.25]),
+                    'gamma': interface_config.get('focal_loss_gamma', 2.5)
+                }
             },
             'data': {
                 'batch_size': interface_config.get('batch_size', 4),
                 'num_workers': interface_config.get('num_workers', 4),
                 'image_size': interface_config.get('image_size', 512),
+                'gradient_accumulation_steps': interface_config.get('gradient_accumulation_steps', 1),
                 'augmentation': {
                     'horizontal_flip': interface_config.get('horizontal_flip', 0.5),
                     'vertical_flip': interface_config.get('vertical_flip', 0.3),
                     'rotation': interface_config.get('rotation', 15),
                     'brightness': interface_config.get('brightness', 0.2),
                     'contrast': interface_config.get('contrast', 0.2)
+                }
+            },
+            'inference': {
+                'tta_enabled': interface_config.get('use_tta', False)
+            },
+            'model': {
+                'architecture': interface_config.get('model_name', 'efficientnetv2_s'),
+                'num_classes': interface_config.get('num_classes', 3),
+                'use_cbam': interface_config.get('use_cbam', True),
+                'dropout_rate': interface_config.get('dropout_rate', 0.4),
+                'pretrained': interface_config.get('pretrained', True),
+                'progressive_unfreezing': {
+                    'phase1_epochs': interface_config.get('progressive_unfreezing_phase1', 8),
+                    'phase2_epochs': interface_config.get('progressive_unfreezing_phase2', 20),
+                    'phase3_epochs': interface_config.get('progressive_unfreezing_phase3', 40)
                 }
             }
         }

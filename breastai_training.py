@@ -130,6 +130,45 @@ class CBAM(nn.Module):
         return x
 
 # ==================================================================================
+# FOCAL LOSS
+# ==================================================================================
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss pour gérer le déséquilibre des classes
+    FL(pt) = -alpha * (1-pt)^gamma * log(pt)
+    """
+    def __init__(self, alpha=None, gamma=2.5, reduction='mean'):
+        super().__init__()
+        self.gamma = gamma
+        self.reduction = reduction
+        if alpha is not None:
+            if isinstance(alpha, list):
+                self.alpha = torch.tensor(alpha)
+            else:
+                self.alpha = alpha
+        else:
+            self.alpha = None
+    
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)  # Probabilité de la vraie classe
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+        
+        if self.alpha is not None:
+            if self.alpha.device != inputs.device:
+                self.alpha = self.alpha.to(inputs.device)
+            alpha_t = self.alpha[targets]
+            focal_loss = alpha_t * focal_loss
+        
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+# ==================================================================================
 # MODÈLE
 # ==================================================================================
 
@@ -290,6 +329,13 @@ class TrainingSystem:
         self.scheduler = None
         self.criterion = None
         
+        # 🆕 Gradient Accumulation & EMA
+        self.gradient_accumulation_steps = 1  # Sera mis à jour au setup
+        self.accumulation_counter = 0
+        self.use_ema = False
+        self.ema_decay = 0.9998
+        self.model_ema = None
+        
         # Métriques
         self.best_val_acc = 0.0
         self.history = defaultdict(list)
@@ -334,6 +380,27 @@ class TrainingSystem:
             self.model = BreastAIModel(architecture, num_classes, use_cbam, dropout)
             self.model.to(self.device)
             
+            # 🆕 Configuration Gradient Accumulation
+            self.gradient_accumulation_steps = self.config.get('data', 'gradient_accumulation_steps', default=1)
+            batch_size = self.config.get('data', 'batch_size', default=4)
+            effective_batch = batch_size * self.gradient_accumulation_steps
+            
+            if self.gradient_accumulation_steps > 1:
+                logger.info(f"🔄 Gradient Accumulation: {self.gradient_accumulation_steps} steps")
+                logger.info(f"   Batch physique: {batch_size} | Batch effectif: {effective_batch}")
+            
+            # 🆕 Configuration EMA
+            self.use_ema = self.config.get('training', 'use_ema', default=False)
+            self.ema_decay = self.config.get('training', 'ema_decay', default=0.9998)
+            
+            if self.use_ema:
+                import copy
+                self.model_ema = copy.deepcopy(self.model)
+                self.model_ema.eval()
+                for param in self.model_ema.parameters():
+                    param.requires_grad = False
+                logger.info(f"✅ EMA activé avec decay={self.ema_decay}")
+            
             await self.send_update({
                 'type': 'progress_update',
                 'stage': 'setup',
@@ -347,10 +414,20 @@ class TrainingSystem:
             
             self.optimizer = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
             
-            # Loss function avec label smoothing depuis config
-            label_smoothing = self.config.get('training', 'label_smoothing', default=0.1)
-            self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-            logger.info(f"Loss: CrossEntropyLoss avec label_smoothing={label_smoothing}")
+            # 🆕 Loss function : Focal Loss OU CrossEntropy
+            focal_config = self.config.get('training', 'focal_loss', {})
+            use_focal = focal_config.get('enabled', False)
+            
+            if use_focal:
+                alpha = focal_config.get('alpha', [0.25, 0.50, 0.25])  # Priorité malignant
+                gamma = focal_config.get('gamma', 2.5)
+                self.criterion = FocalLoss(alpha=alpha, gamma=gamma)
+                logger.info(f"🎯 Loss: FocalLoss avec alpha={alpha}, gamma={gamma}")
+                logger.info(f"   → Focus sur classe malignant (alpha={alpha[1]})")
+            else:
+                label_smoothing = self.config.get('training', 'label_smoothing', default=0.1)
+                self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+                logger.info(f"Loss: CrossEntropyLoss avec label_smoothing={label_smoothing}")
             
             # 4. Scheduler
             epochs = self.config.get('training', 'epochs', default=50)
@@ -456,17 +533,23 @@ class TrainingSystem:
     
     def _apply_progressive_unfreezing(self, epoch: int, total_epochs: int):
         """
-        🔓 PROGRESSIVE UNFREEZING - Optimisation CPU
+        🔓 PROGRESSIVE UNFREEZING 4 PHASES - Optimisation CPU
         
-        Epochs 1-5    : Backbone gelé (seulement classifier) → ×3-4 plus rapide
-        Epochs 6-15   : Dégel des derniers blocs             → ×2 plus rapide
-        Epochs 16+    : Dégel complet                        → vitesse normale
+        Phase 1 (1-8)   : Backbone gelé → ×3 rapide
+        Phase 2 (9-20)  : Dégel 25% → ×2 rapide
+        Phase 3 (21-40) : Dégel 50% → ×1.5 rapide
+        Phase 4 (41+)   : Dégel 100% → vitesse normale
         """
         if not hasattr(self.model, 'backbone'):
             return  # Pas de backbone à geler
         
-        # PHASE 1 : Epochs 1-5 → BACKBONE GELÉ (très rapide)
-        if epoch <= 5:
+        # Récupérer config ou utiliser défauts
+        phase1_end = self.config.get('model', 'progressive_unfreezing', {}).get('phase1_epochs', 8)
+        phase2_end = self.config.get('model', 'progressive_unfreezing', {}).get('phase2_epochs', 20)
+        phase3_end = self.config.get('model', 'progressive_unfreezing', {}).get('phase3_epochs', 40)
+        
+        # PHASE 1 : Epochs 1-8 → BACKBONE 100% GELÉ
+        if epoch <= phase1_end:
             if epoch == 1:
                 # Geler tout le backbone
                 for param in self.model.backbone.parameters():
@@ -476,41 +559,78 @@ class TrainingSystem:
                 total_params = sum(p.numel() for p in self.model.parameters())
                 trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
                 
-                logger.info("🔒 [Phase 1/3] Backbone GELÉ - Entraînement classifier seul (×3-4 plus rapide)")
+                logger.info(f"🔒 [Phase 1/4] Backbone GELÉ - Epochs 1-{phase1_end} (×3 plus rapide)")
                 logger.info(f"   → Paramètres entraînables: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.1f}%)")
             return
         
-        # PHASE 2 : Epochs 6-15 → DÉGEL PARTIEL (2-3 derniers blocs)
-        elif epoch == 6:
-            # Dégeler les derniers blocs du backbone
-            logger.info("🔓 [Phase 2/3] Dégel PARTIEL - 3 derniers blocs (×2 plus rapide)")
+        # PHASE 2 : Epochs 9-20 → DÉGEL 25%
+        elif epoch == phase1_end + 1:
+            logger.info(f"🔓 [Phase 2/4] Dégel 25% - Epochs {phase1_end+1}-{phase2_end} (×2 plus rapide)")
             
-            # Pour EfficientNet, dégeler les dernières "features"
             if hasattr(self.model.backbone, 'features'):
                 total_blocks = len(self.model.backbone.features)
-                unfreeze_from = max(0, total_blocks - 3)  # 3 derniers blocs
+                unfreeze_from = int(total_blocks * 0.75)  # 25% des derniers blocs
                 
                 for idx, block in enumerate(self.model.backbone.features):
                     if idx >= unfreeze_from:
                         for param in block.parameters():
                             param.requires_grad = True
                 
-                logger.info(f"   → Blocs {unfreeze_from}-{total_blocks} dégelés")
+                trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                total = sum(p.numel() for p in self.model.parameters())
+                logger.info(f"   → Blocs {unfreeze_from}-{total_blocks} dégelés ({100*trainable/total:.1f}% params)")
+            
+            # Réduire LR
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * 0.5
+            logger.info(f"   → Learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
             return
         
-        # PHASE 3 : Epoch 16+ → DÉGEL COMPLET
-        elif epoch == 16:
-            logger.info("🔥 [Phase 3/3] Dégel COMPLET - Tous les paramètres (vitesse normale)")
+        elif epoch <= phase2_end:
+            return  # Phase 2 en cours
+        
+        # PHASE 3 : Epochs 21-40 → DÉGEL 50%
+        elif epoch == phase2_end + 1:
+            logger.info(f"🔥 [Phase 3/4] Dégel 50% - Epochs {phase2_end+1}-{phase3_end} (×1.5 plus rapide)")
             
-            # Dégeler tout le backbone
+            if hasattr(self.model.backbone, 'features'):
+                total_blocks = len(self.model.backbone.features)
+                unfreeze_from = int(total_blocks * 0.50)  # 50% des blocs
+                
+                for idx, block in enumerate(self.model.backbone.features):
+                    if idx >= unfreeze_from:
+                        for param in block.parameters():
+                            param.requires_grad = True
+                
+                trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                total = sum(p.numel() for p in self.model.parameters())
+                logger.info(f"   → Blocs {unfreeze_from}-{total_blocks} dégelés ({100*trainable/total:.1f}% params)")
+            
+            # Réduire encore LR
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * 0.6
+            logger.info(f"   → Learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
+            return
+        
+        elif epoch <= phase3_end:
+            return  # Phase 3 en cours
+        
+        # PHASE 4 : Epochs 41+ → DÉGEL 100% COMPLET
+        elif epoch == phase3_end + 1:
+            logger.info(f"💪 [Phase 4/4] Dégel 100% COMPLET - Epochs {phase3_end+1}+ (vitesse normale)")
+            
+            # Dégeler TOUT le backbone
             for param in self.model.backbone.parameters():
                 param.requires_grad = True
             
-            # Optionnel : Réduire le learning rate pour éviter de casser les poids pré-entraînés
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = param_group['lr'] * 0.1  # Diviser LR par 10
+            trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            total = sum(p.numel() for p in self.model.parameters())
+            logger.info(f"   → TOUS les paramètres dégelés ({100*trainable/total:.1f}% = 100%)")
             
-            logger.info(f"   → Learning rate réduit à {self.optimizer.param_groups[0]['lr']:.2e}")
+            # LR finale réduite
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * 0.33
+            logger.info(f"   → Learning rate final: {self.optimizer.param_groups[0]['lr']:.2e}")
             return
     
     async def train(self, epochs: Optional[int] = None, start_epoch: int = 1):
@@ -601,24 +721,48 @@ class TrainingSystem:
             self.is_training = False
     
     async def _train_epoch(self, epoch: int) -> Dict:
-        """Une epoch d'entraînement"""
+        """Une epoch d'entraînement avec Gradient Accumulation & EMA"""
         self.model.train()
         total_loss = 0
         correct = 0
         total = 0
         skipped_batches = 0
         
+        # Reset accumulation counter au début de l'epoch
+        self.optimizer.zero_grad()
+        
         for batch_idx, (images, labels) in enumerate(self.train_loader):
             try:
                 images, labels = images.to(self.device), labels.to(self.device)
                 
-                self.optimizer.zero_grad()
+                # Forward pass
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
-                loss.backward()
-                self.optimizer.step()
                 
-                total_loss += loss.item()
+                # 🔄 GRADIENT ACCUMULATION
+                if self.gradient_accumulation_steps > 1:
+                    loss = loss / self.gradient_accumulation_steps
+                
+                loss.backward()
+                
+                # Accumulation counter
+                self.accumulation_counter += 1
+                
+                # Optimizer step seulement tous les N batches
+                if self.accumulation_counter % self.gradient_accumulation_steps == 0:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    
+                    # ✅ EMA UPDATE (après optimizer step)
+                    if self.use_ema and self.model_ema is not None:
+                        self._update_ema()
+                
+                # Métriques (attention: loss déjà divisée si accumulation)
+                if self.gradient_accumulation_steps > 1:
+                    total_loss += loss.item() * self.gradient_accumulation_steps
+                else:
+                    total_loss += loss.item()
+                
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
                 correct += predicted.eq(labels).sum().item()
@@ -676,11 +820,30 @@ class TrainingSystem:
             'accuracy': avg_acc
         }
     
+    def _update_ema(self):
+        """
+        ✅ Update EMA model
+        EMA: model_ema = decay * model_ema + (1 - decay) * model
+        """
+        with torch.no_grad():
+            for ema_param, model_param in zip(self.model_ema.parameters(), self.model.parameters()):
+                ema_param.data.mul_(self.ema_decay).add_(model_param.data, alpha=1 - self.ema_decay)
+    
     async def _validate_epoch(self, epoch: int) -> Dict:
-        """Validation"""
+        """Validation avec TTA optionnel"""
         if self.val_loader is None:
             return {'loss': 0, 'accuracy': 0, 'f1_macro': 0}
         
+        # 🆕 Vérifier si TTA activé
+        use_tta = self.config.get('inference', 'tta_enabled', False)
+        
+        if use_tta:
+            return await self._validate_with_tta(epoch)
+        else:
+            return await self._validate_standard(epoch)
+    
+    async def _validate_standard(self, epoch: int) -> Dict:
+        """Validation standard (sans TTA)"""
         self.model.eval()
         total_loss = 0
         all_preds = []
@@ -728,6 +891,80 @@ class TrainingSystem:
         
         return {
             'loss': total_loss / len(self.val_loader),
+            'accuracy': accuracy,
+            'f1_macro': f1_macro,
+            'f1_weighted': f1_weighted,
+            'precision_macro': precision_macro,
+            'recall_macro': recall_macro,
+            'precision_weighted': precision_weighted,
+            'recall_weighted': recall_weighted
+        }
+    
+    async def _validate_with_tta(self, epoch: int) -> Dict:
+        """
+        🔄 Validation avec Test-Time Augmentation
+        Applique 6 transformations et moyenne les prédictions
+        """
+        self.model.eval()
+        all_preds = []
+        all_labels = []
+        
+        await self.send_update({
+            'type': 'log',
+            'message': f'🔄 Validation epoch {epoch} avec TTA (6x augmentations)...',
+            'level': 'info'
+        })
+        
+        # Définir les transformations TTA
+        tta_transforms = [
+            lambda x: x,  # Original
+            lambda x: torch.flip(x, dims=[3]),  # Horizontal flip
+            lambda x: torch.flip(x, dims=[2]),  # Vertical flip
+            lambda x: x,  # Rotation skip (complexe)
+            lambda x: torch.clamp(x * 1.05, 0, 1),  # Brightness +5%
+            lambda x: torch.clamp((x - x.mean(dim=[2,3], keepdim=True)) * 1.05 + x.mean(dim=[2,3], keepdim=True), 0, 1),  # Contrast
+        ]
+        
+        with torch.no_grad():
+            for images, labels in self.val_loader:
+                images = images.to(self.device)
+                labels = labels.to(self.device)
+                
+                # Collecter prédictions de toutes les augmentations
+                predictions = []
+                for transform in tta_transforms:
+                    aug_images = transform(images)
+                    outputs = self.model(aug_images)
+                    probs = F.softmax(outputs, dim=1)
+                    predictions.append(probs)
+                
+                # Moyenne des prédictions
+                final_probs = torch.mean(torch.stack(predictions), dim=0)
+                _, predicted = final_probs.max(1)
+                
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+        
+        # Calculer métriques (pas de loss avec TTA)
+        accuracy = accuracy_score(all_labels, all_preds) * 100
+        f1_macro = f1_score(all_labels, all_preds, average='macro')
+        f1_weighted = f1_score(all_labels, all_preds, average='weighted')
+        precision_macro = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+        recall_macro = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+        precision_weighted = precision_score(all_labels, all_preds, average='weighted', zero_division=0)
+        recall_weighted = recall_score(all_labels, all_preds, average='weighted', zero_division=0)
+        
+        val_msg = f"Validation TTA - Acc: {accuracy:.2f}%, F1-macro: {f1_macro:.3f}, F1-weighted: {f1_weighted:.3f}"
+        logger.info(val_msg)
+        
+        await self.send_update({
+            'type': 'log',
+            'message': val_msg,
+            'level': 'success'
+        })
+        
+        return {
+            'loss': 0,  # Pas de loss avec TTA
             'accuracy': accuracy,
             'f1_macro': f1_macro,
             'f1_weighted': f1_weighted,
