@@ -987,8 +987,8 @@ class TrainingSystem:
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
                 logger.info(log_msg)
             
-            # Interface web ULTRA-RÉDUIT (tous les 30 batches pour éviter timeout)
-            if batch_idx % 30 == 0:
+            # Interface web ÉQUILIBRÉ (tous les 15 batches - compromis)
+            if batch_idx % 15 == 0:
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
                 await self.send_update({
                     'type': 'log',
@@ -997,8 +997,8 @@ class TrainingSystem:
                     'timestamp': datetime.now().isoformat()
                 })
             
-            # TEST : Message batch_progress MINIMAL
-            if batch_idx % 50 == 0:  # Seulement tous les 50 batches pour éviter timeout
+            # TEST : Message batch_progress ÉQUILIBRÉ
+            if batch_idx % 25 == 0:  # Tous les 25 batches - compromis optimal
                 try:
                     batch_msg = {
                         'type': 'batch_progress',

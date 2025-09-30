@@ -98,7 +98,7 @@ class BreastAIServer:
             async def keep_alive():
                 try:
                     while websocket in self.clients:
-                        await asyncio.sleep(15)  # Ping plus fréquent - toutes les 15s
+                        await asyncio.sleep(10)  # Ping très fréquent - toutes les 10s
                         if websocket in self.clients:
                             await websocket.ping()
                 except Exception as e:
