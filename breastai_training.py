@@ -982,6 +982,15 @@ class TrainingSystem:
             current_acc = 100. * correct / total if total > 0 else 0
             batch_progress = (batch_idx / len(self.train_loader)) * 100
             
+            # MESSAGE IMMÉDIAT pour le premier batch (confirmation démarrage)
+            if batch_idx == 0:
+                first_msg = f"Epoch {epoch} [0/{len(self.train_loader)}] - DÉMARRAGE CONFIRMÉ !"
+                await self.send_update({
+                    'type': 'log',
+                    'message': first_msg,
+                    'level': 'success'
+                })
+            
             # Log fichier (toutes les 10 batches pour ne pas surcharger)
             if batch_idx % 10 == 0:
                 log_msg = f"Epoch {epoch} [{batch_idx}/{len(self.train_loader)}] Loss: {loss.item():.4f} Acc: {current_acc:.2f}%"
