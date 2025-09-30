@@ -971,12 +971,22 @@
             const progress = ((data.batch / data.total_batches) * 100);
             const text = `Batch ${data.batch}/${data.total_batches} (${progress.toFixed(1)}%) - Loss: ${data.current_loss} - Acc: ${data.current_accuracy}%`;
             
+            // Mettre à jour le texte de progression batch
             const element = document.getElementById('batchProgress');
             if (element) {
                 element.textContent = text;
                 console.log('batchProgress mis à jour:', text); // DEBUG
             } else {
                 console.error('Élément batchProgress introuvable!'); // DEBUG
+            }
+            
+            // NOUVEAU : Mettre à jour aussi la barre de progression principale
+            const progressFill = document.getElementById('progressFill');
+            if (progressFill) {
+                const batchProgress = progress.toFixed(1);
+                progressFill.style.width = batchProgress + '%';
+                progressFill.textContent = batchProgress + '%';
+                console.log('Barre de progression mise à jour:', batchProgress + '%'); // DEBUG
             }
         }
 
