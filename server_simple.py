@@ -45,7 +45,15 @@ class BreastAIServer:
         self.training_task: Optional[asyncio.Task] = None
         self.is_training = False
         
-        logger.info(f"Serveur initialisé sur {host}:{port}")
+        # QUEUE THREAD-SAFE pour messages temps réel
+        self.message_queue = queue.Queue()
+        self.queue_running = True
+        
+        # Démarrer le worker queue immédiatement
+        self.queue_thread = threading.Thread(target=self._queue_worker, daemon=True)
+        self.queue_thread.start()
+        
+        logger.info(f"Serveur initialisé sur {host}:{port} avec queue thread-safe")
     
     def broadcast_sync(self, message: Dict):
         """VERSION SYNCHRONE - Queue thread-safe pour messages temps réel"""
@@ -68,11 +76,13 @@ class BreastAIServer:
                 # Attendre un message (bloquant avec timeout)
                 message = self.message_queue.get(timeout=1.0)
                 
-                # Traitement immédiat du message
-                asyncio.run_coroutine_threadsafe(
-                    self._send_message_direct(message), 
-                    asyncio.get_event_loop()
-                )
+                # Traitement immédiat du message - FIX event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.run_coroutine_threadsafe(self._send_message_direct(message), loop)
+                except RuntimeError:
+                    # Pas d'event loop - créer une tâche pour plus tard
+                    logger.warning("Pas d'event loop actif - message différé")
                 
                 self.message_queue.task_done()
                 
