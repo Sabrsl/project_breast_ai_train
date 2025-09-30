@@ -829,7 +829,7 @@ class TrainingSystem:
                     # Sauvegarder uniquement tous les 10 epochs ou a la fin
                     if epoch % 10 == 0 or epoch == epochs:
                         self._save_checkpoint(epoch, 'worst.pth')
-                        logger.info(f"📉 Pire modele sauvegarde (analyse) : Acc={current_acc:.2f}% a epoch {epoch}")
+                        logger.info(f"Pire modele sauvegarde (analyse) : Acc={current_acc:.2f}% a epoch {epoch}")
                 
                 # 🛑 Early Stopping avec classe dediee
                 if self.early_stopping_enabled and self.early_stopping(current_f1):
@@ -993,7 +993,7 @@ class TrainingSystem:
             })
             
             # Progression detaillee EN TEMPS RÉEL
-            await self.send_update({
+            batch_msg = {
                 'type': 'batch_progress',
                 'epoch': epoch,
                 'batch': batch_idx,
@@ -1002,7 +1002,9 @@ class TrainingSystem:
                 'current_loss': float(loss.item()),
                 'current_accuracy': float(current_acc),
                 'timestamp': datetime.now().isoformat()
-            })
+            }
+            logger.debug(f"Envoi batch_progress: batch {batch_idx}/{len(self.train_loader)}")  # DEBUG
+            await self.send_update(batch_msg)
         
         avg_loss = total_loss / (len(self.train_loader) - skipped_batches) if len(self.train_loader) > skipped_batches else 0
         avg_acc = 100. * correct / total if total > 0 else 0
