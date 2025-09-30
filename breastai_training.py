@@ -463,7 +463,7 @@ class TrainingSystem:
         """Envoie une mise a jour via callback"""
         if self.callback:
             try:
-                logger.debug(f"Envoi message: {message['type']} - {message.get('message', 'N/A')[:50]}...")  # DEBUG
+                logger.info(f"DEBUG: Envoi message: {message['type']} - {message.get('message', 'N/A')[:50]}...")  # TEMP DEBUG
                 await self.callback(message)
             except Exception as e:
                 logger.error(f"Erreur callback WebSocket: {e}")
@@ -1007,7 +1007,7 @@ class TrainingSystem:
                 'current_accuracy': float(current_acc),
                 'timestamp': datetime.now().isoformat()
             }
-            logger.debug(f"Envoi batch_progress: batch {batch_idx}/{len(self.train_loader)}")  # DEBUG
+            logger.info(f"DEBUG: Envoi batch_progress: batch {batch_idx}/{len(self.train_loader)}")  # TEMP DEBUG
             await self.send_update(batch_msg)
         
         avg_loss = total_loss / (len(self.train_loader) - skipped_batches) if len(self.train_loader) > skipped_batches else 0
