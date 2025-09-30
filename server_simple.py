@@ -48,37 +48,29 @@ class BreastAIServer:
         logger.info(f"Serveur initialisé sur {host}:{port}")
     
     async def broadcast(self, message: Dict):
-        """Envoie un message à tous les clients connectés"""
-        logger.info(f"DEBUG: BROADCAST appelé pour: {message['type']}")  # DEBUG
-        
+        """Envoie un message à tous les clients connectés - VERSION PRODUCTION"""
         if not self.clients:
-            logger.warning(f"DEBUG: Pas de clients connectés pour {message['type']}")  # DEBUG
-            return
+            return  # Pas de logs pour éviter spam
         
         try:
             message_json = json.dumps(message, ensure_ascii=False)
-            logger.info(f"DEBUG: JSON créé pour {len(self.clients)} clients")  # DEBUG
         except Exception as e:
-            logger.error(f"DEBUG: Erreur JSON: {e} - Message: {message}")  # DEBUG
+            logger.error(f"Erreur sérialisation JSON: {e}")
             return
         
-        disconnected = set()
-        
-        # COPIER le set pour éviter "Set changed size during iteration"
+        # Copie pour éviter les erreurs d'itération
         clients_copy = self.clients.copy()
+        disconnected = set()
         
         for client in clients_copy:
             try:
                 await client.send(message_json)
-                # Pas de pause - elle cause les timeouts !
-                logger.debug(f"DEBUG: Message envoyé et flushé à client {client.remote_address}")  # DEBUG
             except Exception as e:
-                logger.warning(f"Erreur envoi client: {e}")
+                logger.debug(f"Client déconnecté: {e}")
                 disconnected.add(client)
         
-        # Nettoyer les clients déconnectés
+        # Nettoyage silencieux
         self.clients -= disconnected
-        logger.info(f"DEBUG: BROADCAST terminé pour {message['type']}")  # DEBUG
     
     async def handle_client(self, websocket: WebSocketServerProtocol):
         """Gère une connexion client"""
@@ -94,15 +86,15 @@ class BreastAIServer:
                 'timestamp': datetime.now().isoformat()
             }))
             
-            # PING périodique pour maintenir la connexion
+            # KEEP-ALIVE PRODUCTION - Simple et efficace
             async def keep_alive():
                 try:
                     while websocket in self.clients:
-                        await asyncio.sleep(10)  # Ping très fréquent - toutes les 10s
+                        await asyncio.sleep(20)  # Ping optimal toutes les 20s
                         if websocket in self.clients:
                             await websocket.ping()
-                except Exception as e:
-                    logger.debug(f"Keep-alive stopped: {e}")
+                except:
+                    pass  # Fin silencieuse
             
             asyncio.create_task(keep_alive())
             
