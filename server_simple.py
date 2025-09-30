@@ -83,10 +83,12 @@ class BreastAIServer:
                     )
                     # ATTENDRE que la coroutine soit VRAIMENT exécutée !
                     try:
-                        future.result(timeout=2.0)  # Attendre max 2 secondes
+                        future.result(timeout=5.0)  # Augmenter timeout à 5 secondes
                         logger.info(f"MESSAGE ENVOYE ET EXECUTE VIA THREAD: {message['type']}")
                     except Exception as e:
-                        logger.error(f"Erreur execution coroutine: {e}")
+                        logger.error(f"ERREUR COROUTINE DETAILLEE: {type(e).__name__}: {str(e)} pour message {message['type']}")
+                        # NE PAS BLOQUER - continuer malgré l'erreur
+                        continue
                 else:
                     logger.warning("Event loop principal pas encore disponible")
                 
@@ -98,8 +100,11 @@ class BreastAIServer:
                 logger.error(f"Erreur queue worker: {e}")
     
     async def _send_message_direct(self, message: Dict):
-        """Envoi direct WebSocket - SANS async/await complexe"""
+        """Envoi direct WebSocket - AVEC DIAGNOSTIC COMPLET"""
+        logger.info(f"_send_message_direct APPELEE pour {message['type']} - {len(self.clients)} clients")
+        
         if not self.clients:
+            logger.warning("Aucun client connecté pour envoi direct")
             return
         
         try:
