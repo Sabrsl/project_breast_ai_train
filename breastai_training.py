@@ -961,7 +961,7 @@ class TrainingSystem:
                     raise RuntimeError(f"Trop d'erreurs : {skipped_batches} batches") from e
                 await self.send_update({
                     'type': 'log',
-                    'message': f'⚠ Erreur batch {batch_idx}, skip',
+                    'message': f'Erreur batch {batch_idx}, skip',
                     'level': 'warning'
                 })
                 continue  # Passer à la batch suivante
