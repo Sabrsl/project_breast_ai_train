@@ -777,18 +777,33 @@
         // MESSAGE HANDLERS
         // ==================================================================================
         function handleServerMessage(data) {
+            console.log('🎯 HANDLE MESSAGE:', data);
+            
             // DÉCODAGE FORMAT COMPACT
             let type = data.t || data.type;
             
-            // TRAITEMENT IMMÉDIAT DANS L'EVENT LOOP (pas de setTimeout)
+            // DIAGNOSTIC FORCE - AFFICHAGE BRUTAL
+            logConsole(`🎯 TRAITEMENT: ${type} = ${JSON.stringify(data)}`, 'info');
+            
+            // TRAITEMENT IMMÉDIAT + FORCE FLUSH
             if (type === 'log' || type === 'l') {
                 const message = data.m || data.message;
                 const level = data.l === 'i' ? 'info' : (data.l === 's' ? 'success' : (data.l === 'w' ? 'warning' : (data.l === 'e' ? 'error' : (data.level || 'info'))));
-                logConsole(message, level);
                 
-                // SCROLL IMMÉDIAT (pas de setTimeout)
-                const console = document.getElementById('console');
-                if (console) console.scrollTop = console.scrollHeight;
+                // AFFICHAGE DOUBLE POUR FORCER
+                logConsole(`[TRAINING] ${message}`, level);
+                logConsole(`[COPY] ${message}`, 'warning');
+                
+                // FORCER SCROLL + REFRESH COMPLET
+                setTimeout(() => {
+                    const console = document.getElementById('console');
+                    if (console) {
+                        console.scrollTop = console.scrollHeight;
+                        console.style.display = 'none';
+                        console.offsetHeight;
+                        console.style.display = '';
+                    }
+                }, 1);
             }
             
             if (type === 'bp' || type === 'batch_progress') {
@@ -797,18 +812,31 @@
                 const loss = data.L || data.loss || data.current_loss;
                 const acc = data.a || data.acc || data.current_accuracy;
                 
-                // UPDATE DOM DIRECT (pas de requestAnimationFrame qui peut bufferiser)
+                // FORCER AFFICHAGE DASHBOARD
                 const progress = ((batch / total) * 100).toFixed(1);
-                const text = `Batch ${batch}/${total} (${progress}%) - Loss: ${loss} - Acc: ${acc}%`;
+                const text = `🔥 LIVE: Batch ${batch}/${total} (${progress}%) - Loss: ${loss} - Acc: ${acc}%`;
+                
+                // AFFICHAGE MULTIPLE POUR FORCER
+                logConsole(text, 'success');
                 
                 const element = document.getElementById('batchProgress');
-                if (element) element.textContent = text;
+                if (element) {
+                    element.textContent = text;
+                    element.style.backgroundColor = '#ffff00';  // Jaune flash
+                    setTimeout(() => element.style.backgroundColor = '', 500);
+                }
                 
                 const progressFill = document.getElementById('progressFill');
                 if (progressFill) {
                     progressFill.style.width = progress + '%';
                     progressFill.textContent = progress + '%';
+                    progressFill.style.backgroundColor = '#00ff00';  // Vert flash
+                    setTimeout(() => progressFill.style.backgroundColor = '#4CAF50', 500);
                 }
+                
+                // FORCER REFRESH DOM BRUTAL
+                document.body.style.transform = 'scale(1.0001)';
+                setTimeout(() => document.body.style.transform = '', 10);
             }
 
             switch(type) {
