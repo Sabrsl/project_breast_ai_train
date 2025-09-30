@@ -169,7 +169,21 @@
     "gradient_clip": 1.0,
     "label_smoothing": 0.1,
     "use_amp": false,
-    "compile_model": false
+    "compile_model": false,
+    "early_stopping": {
+      "patience": 10,
+      "min_delta": 0.001,
+      "monitor": "val_f1_weighted",
+      "mode": "max",
+      "restore_best_weights": true
+    },
+    "focal_loss": {
+      "enabled": false,
+      "alpha": [0.25, 0.50, 0.25],
+      "gamma": 2.5
+    },
+    "use_ema": false,
+    "ema_decay": 0.9998
   },
   
   "regularization": {
@@ -199,15 +213,6 @@
     }
   },
   
-  "training": {
-    "early_stopping": {
-      "patience": 10,
-      "min_delta": 0.001,
-      "monitor": "val_f1_weighted",
-      "mode": "max",
-      "restore_best_weights": true
-    }
-  },
   
   "system": {
     "device": "cpu",
