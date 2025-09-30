@@ -996,19 +996,20 @@ class TrainingSystem:
                 'timestamp': datetime.now().isoformat()
             })
             
-            # Progression detaillee EN TEMPS RÉEL
-            batch_msg = {
-                'type': 'batch_progress',
-                'epoch': epoch,
-                'batch': batch_idx,
-                'total_batches': len(self.train_loader),
-                'batch_progress': batch_progress,
-                'current_loss': float(loss.item()),
-                'current_accuracy': float(current_acc),
-                'timestamp': datetime.now().isoformat()
-            }
-            logger.info(f"DEBUG: Envoi batch_progress: batch {batch_idx}/{len(self.train_loader)}")  # TEMP DEBUG
-            await self.send_update(batch_msg)
+            # TEST : Message batch_progress ULTRA-SIMPLIFIÉ
+            if batch_idx % 5 == 0:  # Seulement tous les 5 batches pour éviter saturation
+                try:
+                    batch_msg = {
+                        'type': 'batch_progress',
+                        'batch': batch_idx,
+                        'total_batches': len(self.train_loader),
+                        'current_loss': round(float(loss.item()), 4),
+                        'current_accuracy': round(float(current_acc), 2)
+                    }
+                    logger.info(f"DEBUG: ENVOI BATCH_PROGRESS SIMPLIFIÉ: {batch_idx}")  # DEBUG
+                    await self.send_update(batch_msg)
+                except Exception as e:
+                    logger.error(f"DEBUG: Erreur batch_msg simplifié: {e}")  # DEBUG
         
         avg_loss = total_loss / (len(self.train_loader) - skipped_batches) if len(self.train_loader) > skipped_batches else 0
         avg_acc = 100. * correct / total if total > 0 else 0
